@@ -94,17 +94,10 @@ const deckDescriptions={
 let expanded=false;
 el("canvas").addEventListener("assemblychange",event=>{
   const detail=event.detail; expanded=detail.expanded;
-  if(!detail.suspended) for(const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed",String(button.dataset.view==="ship"));
   el("disassemble").disabled=!detail.decks.length;
   el("disassemble").setAttribute("aria-pressed",String(expanded));
   el("disassemble").innerHTML=`<span class="explode-icon" aria-hidden="true">${expanded ? "▰" : "▱"}</span> ${expanded ? "Assemble Roci" : "Disassemble Roci"}`;
-  el("assembly-status").textContent=detail.moving ? (expanded ? "Separating hull, decks and drive…" : "Bringing the Roci back together…") : detail.focus!==null ? "Inside the Roci · drag to orbit" : expanded ? "Exploded view · choose a deck to step inside" : "Six decks. Four crew. One home.";
-  el("deck-nav").hidden=!detail.decks.length;
-  el("deck-nav").replaceChildren(...detail.decks.map(d=>{
-    const button=document.createElement("button");button.type="button";button.setAttribute("aria-pressed",String(detail.focus===d.index));
-    const number=document.createElement("span");number.textContent=String(d.index+1).padStart(2,"0");
-    button.append(number,document.createTextNode(d.name));button.onclick=()=>scene?.focusDeck(d.index);return button;
-  }));
+  el("assembly-status").textContent=detail.moving ? (expanded ? "Separating hull, decks and drive…" : "Bringing the Roci back together…") : detail.subject ? `${detail.subject} · drag to orbit` : detail.focus!==null ? "Inside the Roci · drag to orbit" : expanded ? "Click a deck or crew member to step inside" : "Six decks. Four crew. One home.";
   const selected=detail.decks.find(d=>d.index===detail.focus);
   el("deck-detail").hidden=!selected;
   if(selected) {
@@ -123,18 +116,13 @@ el("presentation").onclick=()=>{
   requestAnimationFrame(()=>scene?.fit());
 };
 el("rotate").onchange=()=>scene?.setRotate(el("rotate").checked);
-function selectView(name) {
-  scene?.focus(name);
-  for(const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed",String(button.dataset.view===name));
-}
-for(const button of document.querySelectorAll("[data-view]")) button.onclick=()=>selectView(button.dataset.view);
-el("fit").onclick=()=>selectView("ship");
+el("fit").onclick=()=>scene?.reset();
 try {
   state=await api("state");
   for(const [value,label] of Object.entries(state.presets)) {const option=document.createElement("option");option.value=value;option.textContent=label;el("preset").append(option);}
   el("samples").replaceChildren(...(state.sample_asks ?? []).map(ask=> {const b=document.createElement("button");b.type="button";b.textContent=ask;b.onclick=()=>{el("ask").value=ask;el("ask").focus();};return b;}));
   if(!el("ask").value && state.sample_asks?.length) el("ask").value=state.sample_asks[0];
-  el("status").textContent="Explore the ship, then design a torpedo. Blender, OpenRocket and Kord follow your changes.";
+  el("status").textContent="Explore the ship";
   render();
 } catch(error) {el("status").textContent=`Unable to load the ship: ${error.message}`;el("propose").disabled=true;}
 try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));renderScene();}

@@ -152,6 +152,33 @@ end tell
         chrome_open_window(url)
 
 
+class KordWindow:
+    """The Chrome window showing the comparison, kept on the newest revision.
+
+    A revision's Kord link is minted after the model has answered and the
+    export has run, so it can arrive late -- and when the next ask took the
+    workbench lock while this one waited on it, it can arrive *after* a newer
+    link. Carrying the revision index is what lets the window ignore that one
+    instead of stepping back a revision behind the workbench.
+    """
+
+    def __init__(self, window_id: int | None = None, showing: int = -1) -> None:
+        self.window_id = window_id
+        self.showing = showing
+
+    def open(self, url: str, index: int = -1, bounds: Bounds | None = None) -> None:
+        self.window_id = chrome_open_window(url, bounds)
+        self.showing = index
+
+    def show(self, url: str, index: int) -> bool:
+        """Navigate to a revision's comparison. False when it is already behind."""
+        if index <= self.showing:
+            return False
+        self.showing = index
+        chrome_set_url(self.window_id, url)
+        return True
+
+
 def open_browser(url: str) -> str:
     """Chrome when it is installed, the default browser otherwise."""
     if _mac_app_available(CHROME_APP):

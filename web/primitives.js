@@ -35,6 +35,41 @@ function schematicShip(spec, changed, ghost, geometryChanged=[]) {
   return group;
 }
 
+// A clearly labelled enlarged specimen makes the small carried rocket inspectable.
+function torpedoPreview(spec, hull) {
+  const group=new THREE.Group(); group.name="torpedo_preview";
+  group.userData={assembly_kind:"torpedo",assembly_offset:[0,0,0],rocinantePrimitive:true};
+  const amber=new THREE.MeshStandardMaterial({color:0xffc16c,emissive:0xd88728,emissiveIntensity:.45,metalness:.45,roughness:.35});
+  const bodyMaterial=new THREE.MeshStandardMaterial({color:0xe0e8ec,emissive:0xa76c27,emissiveIntensity:.18,metalness:.55,roughness:.35});
+  let y=0;
+  for(const tube of [...spec.body].reverse()) {
+    mesh(group,new THREE.CylinderGeometry(tube.outer_radius_m,tube.outer_radius_m,tube.length_m,32),bodyMaterial,0,y+tube.length_m/2,0);
+    y+=tube.length_m;
+  }
+  const nose=spec.nose, profile=[];
+  for(let i=0;i<=40;i++) {
+    const t=i/40;
+    const theta=Math.acos(1-2*(1-t));
+    const radius=nose.shape==="conical" ? 1-t : nose.shape==="ellipsoid" ? Math.sqrt(1-t*t) :
+      nose.shape==="parabolic" ? (2*(1-t)-nose.shape_parameter*(1-t)**2)/(2-nose.shape_parameter) :
+      nose.shape==="haack" ? Math.sqrt(Math.max(0,(theta-Math.sin(2*theta)/2+nose.shape_parameter*Math.sin(theta)**3)/Math.PI)) :
+      (()=> { const rho=(nose.base_radius_m**2+nose.length_m**2)/(2*nose.base_radius_m);
+        return (Math.sqrt(Math.max(0,rho*rho-(t*nose.length_m)**2))+nose.base_radius_m-rho)/nose.base_radius_m; })();
+    profile.push(new THREE.Vector2(Math.max(0,radius)*nose.base_radius_m,y+t*nose.length_m));
+  }
+  mesh(group,new THREE.LatheGeometry(profile,32),amber);
+  const fins=spec.fins, r=spec.body.at(-1).outer_radius_m, aft=fins.offset_from_aft_m;
+  const shape=new THREE.Shape(); shape.moveTo(r,aft); shape.lineTo(r,aft+fins.root_chord_m);
+  shape.lineTo(r+fins.height_m,aft+fins.root_chord_m-fins.sweep_m);
+  shape.lineTo(r+fins.height_m,aft+fins.root_chord_m-fins.sweep_m-fins.tip_chord_m); shape.closePath();
+  const geometry=new THREE.ExtrudeGeometry(shape,{depth:fins.thickness_m,bevelEnabled:false}); geometry.translate(0,0,-fins.thickness_m/2);
+  for(let i=0;i<fins.count;i++) mesh(group,geometry,amber).rotation.y=i/fins.count*Math.PI*2;
+  const length=y+nose.length_m, scale=10/length;
+  group.scale.setScalar(scale);
+  group.position.set(hull.beam_m/2+9,-3,-4);
+  return group;
+}
+
 // --- the sky ---------------------------------------------------------------
 
 function seeded(seed) { let s=seed>>>0; return ()=> { s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
@@ -271,15 +306,15 @@ export function createScene(container) {
   scene.background=galaxyTexture();
   scene.add(stars(3600,14000,1.15,11), stars(180,13000,2.5,13));
   const far=neighbourhood(); scene.add(far);
-  const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.5; controls.minDistance=8; controls.maxDistance=2500;
+  const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.5; controls.minDistance=1; controls.maxDistance=2500;
   scene.add(new THREE.HemisphereLight(0xb9d4ff,0x1a2233,1.4));
   const sun=new THREE.DirectionalLight(0xfff1de,4.5); sun.position.set(600,900,-700); scene.add(sun);
   const fill=new THREE.DirectionalLight(0x9bc0ff,1.6); fill.position.set(-500,100,400); scene.add(fill);
   const models=new THREE.Group(); scene.add(models);
   const gltf=new GLTFLoader(), glbCache=new Map();
-  let loadRequest=0, lastUpdate="";
+  let loadRequest=0, lastUpdate="", torpedo=null;
   const assembly=createAssembly(models,camera,controls,container);
-  container.addEventListener("assemblychange",event=>{far.visible=event.detail.focus===null;});
+  container.addEventListener("assemblychange",event=>{far.visible=event.detail.focus===null && !event.detail.subject;});
 
   // Blender writes the semantic part tag as a glTF extra; fall back to names.
   function partOf(object) {
@@ -321,6 +356,23 @@ export function createScene(container) {
     });
   }
 
+  function highlightTubes(root) {
+    root.traverse(object=> {
+      if(!object.isMesh || !partOf(object).startsWith("tube_")) return;
+      const paint=original=> {
+        const material=original.clone(); material.color.lerp(new THREE.Color(0xffbd61),.65);
+        if(material.emissive) { material.emissive.set(0xffa52f); material.emissiveIntensity=.5; }
+        return material;
+      };
+      const originals=Array.isArray(object.material) ? object.material : [object.material];
+      object.material=Array.isArray(object.material) ? originals.map(paint) : paint(object.material);
+      if(object.userData.rocinantePreviewMaterial || root.userData.rocinantePrimitive) originals.forEach(m=>m.dispose());
+      object.userData.rocinantePreviewMaterial=true;
+    });
+  }
+  function addTorpedo(spec) {
+    torpedo=torpedoPreview(spec.torpedo,spec.hull); models.add(torpedo);
+  }
   function dispose(root) {
     const primitive=root.userData.rocinantePrimitive;
     root.traverse(object=> {
@@ -362,8 +414,7 @@ export function createScene(container) {
     const sphere=box.getBoundingSphere(new THREE.Sphere());
     const distance=frameDistance(sphere.radius,1.1);
     const direction=new THREE.Vector3(.7,.25,-1);
-    camera.position.copy(sphere.center).addScaledVector(direction.normalize(),distance);
-    controls.target.copy(sphere.center); controls.update(); framed=true;
+    assembly.moveCamera(sphere.center,distance,direction); framed=true;
   }
   new ResizeObserver(() => {
     const view=viewport(), {w,h}=view; renderer.setSize(w,h); camera.aspect=w/Math.max(h,1);
@@ -379,21 +430,67 @@ export function createScene(container) {
       if(child.userData.spin) child.rotation.z+=child.userData.spin*dt;
       if(child.userData.field) child.userData.field.uniforms.time.value+=dt;
     });
-    controls.update(); renderer.render(scene,camera);
+    if(!assembly.movingCamera) controls.update();
+    renderer.render(scene,camera);
   });
+  function focus(name) {
+    if(name==="ship") { reset(); return; }
+    const body=far.userData.landmarks[name]; if(!body) return;
+    assembly.suspend();
+    const radius=name==="ring" ? 570 : name==="tycho" ? 185 : 155;
+    const direction=camera.position.clone().sub(body.position).normalize();
+    assembly.moveCamera(body.position,frameDistance(radius,1.15),direction);
+  }
+  function reset() {
+    if(assembly.ready) assembly.expand(false); else { assembly.suspend(); fit(); }
+  }
+  const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
+  function hitAt(event) {
+    const rect=renderer.domElement.getBoundingClientRect();
+    pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+    scene.updateMatrixWorld(true); camera.updateMatrixWorld(); raycaster.setFromCamera(pointer,camera);
+    const visible=object=> { for(let p=object;p;p=p.parent) if(!p.visible || p.userData.assemblyGhost) return false; return true; };
+    const hits=raycaster.intersectObjects([models,far],true);
+    for(const hit of hits) {
+      if(!hit.object.isMesh || !visible(hit.object)) continue;
+      for(let node=hit.object;node;node=node.parent) {
+        if(node===torpedo || partOf(node).startsWith("tube_")) return {kind:"torpedo"};
+        if(Object.values(far.userData.landmarks).includes(node)) return {kind:"landmark",name:node.name};
+      }
+      if(assembly.selectable(hit.object)) return {kind:"part",object:hit.object};
+      // Opaque ship geometry blocks selection of anything behind it.
+      return null;
+    }
+    return null;
+  }
+  let press=null;
+  const activePointers=new Set();
+  renderer.domElement.addEventListener("pointerdown",event=> {
+    activePointers.add(event.pointerId);
+    press=activePointers.size===1 && event.button===0 ? {id:event.pointerId,x:event.clientX,y:event.clientY,dragged:false} : null;
+  });
+  renderer.domElement.addEventListener("pointermove",event=> {
+    if(press && Math.hypot(event.clientX-press.x,event.clientY-press.y)>6) press.dragged=true;
+    renderer.domElement.style.cursor=activePointers.size ? "grabbing" : hitAt(event) ? "pointer" : "grab";
+  });
+  renderer.domElement.addEventListener("pointerup",event=> {
+    activePointers.delete(event.pointerId);
+    const click=press && press.id===event.pointerId && !press.dragged && Math.hypot(event.clientX-press.x,event.clientY-press.y)<=6;
+    press=null; if(!click) return;
+    const hit=hitAt(event); if(!hit) return;
+    if(hit.kind==="landmark") focus(hit.name);
+    else if(hit.kind==="torpedo" && torpedo) assembly.focus(null,torpedo);
+    else assembly.pick(hit.object);
+  },{capture:true});
+  renderer.domElement.addEventListener("pointercancel",event=>{activePointers.delete(event.pointerId);press=null;});
+  renderer.domElement.addEventListener("lostpointercapture",event=>{activePointers.delete(event.pointerId);press=null;});
+  renderer.domElement.setAttribute("tabindex","0");
+  renderer.domElement.setAttribute("aria-label","Explore the Rocinante. Click the hull to reveal decks, then click a deck, crew member, torpedo or distant landmark to zoom. Press Escape to reset view.");
+  renderer.domElement.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   return {
-    fit,
+    fit, reset, focus,
     setExpanded(on) { assembly.expand(on); },
     focusDeck(index) { assembly.focus(index); },
-    focus(name) {
-      if(name==="ship") { fit(); return; }
-      assembly.suspend();
-      const body=far.userData.landmarks[name]; if(!body) return;
-      const radius=name==="ring" ? 570 : name==="tycho" ? 185 : 155;
-      const distance=frameDistance(radius,1.15);
-      camera.position.copy(body.position).addScaledVector(new THREE.Vector3(.7,.25,-1).normalize(),distance);
-      controls.target.copy(body.position); controls.update();
-    },
     setRotate(on) { controls.autoRotate=on; },
     async update(current,previous,{ghost,highlight}) {
       const signature=JSON.stringify([current.index,current.handoff?.artifacts,ghost,highlight]);
@@ -423,6 +520,7 @@ export function createScene(container) {
           clearModels(); models.userData.rocinanteGlb=true;
           if(before && ghost) { paintExport(before,{ghost:true,changed:[]}); before.userData.assemblyGhost=true; models.add(centre(before)); }
           paintExport(after,{ghost:false,changed:highlight ? inputOnly : [],geometryChanged:highlight ? actualEdits : []}); models.add(centre(after));
+          highlightTubes(after); addTorpedo(current.spec);
           assembly.bind(); lastUpdate=signature;
           if(!keepCamera) fit();
           return exportedSource ? "export" : "demo";
@@ -432,7 +530,8 @@ export function createScene(container) {
       clearModels(); models.userData.rocinanteGlb=false;
       const after=schematicShip(current.spec,highlight ? current.changed_parts ?? [] : [],false,highlight ? current.geometry_changed_parts ?? [] : []);
       after.userData.rocinantePrimitive=true; models.add(after);
-      if(previous && ghost) { const before=schematicShip(previous.spec,[],true); before.userData.rocinantePrimitive=true; models.add(before); }
+      if(previous && ghost) { const before=schematicShip(previous.spec,[],true); before.userData.rocinantePrimitive=true; before.userData.assemblyGhost=true; models.add(before); }
+      highlightTubes(after); addTorpedo(current.spec);
       assembly.bind();
       if(!keepCamera) fit();
       return "schematic";

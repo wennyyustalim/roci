@@ -90,6 +90,18 @@ spare port with the fixture presets plus one live Astra call.
   Chrome and System Events). Without it the apps still open, just not tiled.
   Accessibility is no longer involved — nothing is moved through the
   accessibility tree any more.
+- [ ] **Kord's change badge is clipped in the quadrant.** At 864 pt the
+  annotation on the drawing reads `height 70 mm →` with the new value cut
+  off, and the same badge is drawn on the before and after panes — so a
+  correct `70 mm → 90 mm` refit reads on screen as "70 → 70". The Changes
+  list on the right is the one to narrate; it is complete and correct. The
+  view mode is not in the `/d/<token>` URL, so the demo cannot deep-link to
+  it, and Kord is a separate product we do not change for this.
+- [ ] **Uploads still run under the workbench lock.** A revision's share holds
+  it across the network call, so a second ask submitted straight away blocks
+  behind it (and vice versa). `demo.KordWindow` now refuses a link older than
+  the one it is showing, so the window can no longer step backwards, but the
+  underlying serialization is P2.3's job.
 - [ ] **Kord link expiry:** shares are 7-day links. The Kord window reopens the
   last saved link on restart; check it before going on stage. A link minted
   against the local Kord only resolves while that server is running, so a

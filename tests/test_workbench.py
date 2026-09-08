@@ -383,7 +383,7 @@ def test_demo_mode_accepts_every_ask_and_shares_the_right_pair(tmp_path, monkeyp
     monkeypatch.setattr("rocinante.workbench.threading.Thread",
                         lambda target, args, name, daemon: Mock(start=lambda: target(*args)))
     bench = Workbench(tmp_path, auto_export=True, auto_accept=True, auto_share=True,
-                      on_share_url=shown.append)
+                      on_share_url=lambda url, index: shown.append((url, index)))
     fins = bench.propose({"preset": "fins"})["iterations"][-1]
     assert fins["status"] == "approved" and bench.state["accepted"] == 1
     assert shared[-1] == ("v0000.ork", "v0001.ork", "Rocinante torpedo v0 → v1 (fixture)")
@@ -391,7 +391,8 @@ def test_demo_mode_accepts_every_ask_and_shares_the_right_pair(tmp_path, monkeyp
     tubes = bench.propose({"preset": "torpedoes"})["iterations"][-1]
     assert tubes["parent"] == 1 and bench.state["accepted"] == 2
     assert shared[-1] == ("before.glb", "after.glb", "Rocinante ship v1 → v2 (fixture)")
-    assert shown == ["https://work.withkord.com/d/1", "https://work.withkord.com/d/2"]
+    # Each link carries its revision, so a late one can be told from a newer one.
+    assert shown == [("https://work.withkord.com/d/1", 1), ("https://work.withkord.com/d/2", 2)]
     bow = bench.propose({"preset": "bow"})["iterations"][-1]
     assert bow["geometry_changed_parts"] == ["tube_*"]
     assert bow["spec"]["weapons"]["tube_station"] == 0.88

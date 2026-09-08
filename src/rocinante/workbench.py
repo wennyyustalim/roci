@@ -134,7 +134,9 @@ class Workbench:
         auto_accept: bool = False,
         auto_share: bool = False,
         torpedo_only: bool = False,
-        on_share_url: Callable[[str], None] | None = None,
+        # Called with a revision's comparison link and its index. The index is
+        # what lets a viewer ignore a link that arrives after a newer one.
+        on_share_url: Callable[[str, int], None] | None = None,
         blender_geometry: list[str] | None = None,
         openrocket_bounds: Bounds | None = None,
     ):
@@ -309,7 +311,7 @@ class Workbench:
                            expires_at=result.get("expiresAt"))
             if self.on_share_url:
                 try:
-                    self.on_share_url(handoff["share_url"])
+                    self.on_share_url(handoff["share_url"], current["index"])
                 except Exception:
                     logging.getLogger(__name__).exception("Kord window navigation failed")
         except Exception:

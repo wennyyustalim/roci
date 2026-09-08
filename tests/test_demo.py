@@ -60,6 +60,30 @@ def test_seed_openrocket_bounds_writes_the_node_openrocket_restores_from(tmp_pat
     assert read(frame % "size") == "700,400"
 
 
+def test_kord_window_ignores_a_link_that_arrives_after_a_newer_one(monkeypatch):
+    """A slow upload must not step the window back behind the workbench."""
+    went = []
+    monkeypatch.setattr(demo, "chrome_set_url", lambda window_id, url: went.append(url))
+    window = demo.KordWindow(window_id=7)
+
+    assert window.show("/d/one", 1)
+    assert window.show("/d/three", 3)
+    assert not window.show("/d/two", 2)  # v2 finished uploading after v3
+    assert not window.show("/d/three-again", 3)  # a repeated share of the same revision
+    assert went == ["/d/one", "/d/three"]
+
+
+def test_kord_window_starts_on_the_revision_its_saved_link_belongs_to(monkeypatch):
+    monkeypatch.setattr(demo, "chrome_open_window", lambda url, bounds: 11)
+    monkeypatch.setattr(demo, "chrome_set_url", lambda window_id, url: None)
+    window = demo.KordWindow()
+    window.open("/d/saved", 4, (864, 575, 864, 542))
+    assert (window.window_id, window.showing) == (11, 4)
+    # A restart must not replay revisions the saved link already covers.
+    assert not window.show("/d/older", 3)
+    assert window.show("/d/newer", 5)
+
+
 def test_quadrants_tile_the_screen_under_the_menu_bar():
     quads = demo.quadrants(1728, 1117)
     assert quads["ui"] == (0, 33, 864, 542)

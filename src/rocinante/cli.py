@@ -280,9 +280,9 @@ def demo(
     """
     from rocinante.agent.refit import model_name
     from rocinante.demo import (
+        KordWindow,
         blender_geometry,
         chrome_open_window,
-        chrome_set_url,
         open_browser,
         openrocket_available,
         prepare_openrocket,
@@ -308,11 +308,11 @@ def demo(
 
     width, height = screen_size()
     quads = quadrants(width, height) if layout else {}
-    kord_window: list[int | None] = [None]
+    kord_window = KordWindow()
 
-    def show_in_kord(url: str) -> None:
+    def show_in_kord(url: str, index: int) -> None:
         if chrome:
-            chrome_set_url(kord_window[0], url)
+            kord_window.show(url, index)
 
     # Seeding OpenRocket's saved window geometry only takes at launch, so this
     # has to run before the workbench opens the baseline torpedo.
@@ -334,8 +334,9 @@ def demo(
         raise typer.Exit(1) from exc
 
     url = f"http://127.0.0.1:{port}/"
-    last_share = next((it["handoff"]["share_url"] for it in reversed(bench.state["iterations"])
-                       if it.get("handoff", {}).get("share_url")), None)
+    last_share, last_index = next(
+        ((it["handoff"]["share_url"], it["index"]) for it in reversed(bench.state["iterations"])
+         if it.get("handoff", {}).get("share_url")), (None, -1))
     # /diff is Kord's comparison UI with nothing dropped on it yet. Opening the
     # second window there rather than on Kord's home page means the demo starts
     # on the surface each revision's link replaces, and reaches it before the
@@ -352,7 +353,7 @@ def demo(
     if chrome:
         if layout:
             chrome_open_window(url, quads["ui"])
-            kord_window[0] = chrome_open_window(last_share or comparison, quads["kord"])
+            kord_window.open(last_share or comparison, last_index, quads["kord"])
         else:
             open_browser(url)
         table.add_row("Chrome", "torpedo bay UI", url)
