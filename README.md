@@ -77,9 +77,16 @@ its modules fail to load. No Blender or API key is needed for fixture mode.
 `uv run rocinante demo --live` uses the existing model proposal method with
 free text. Export `OPENAI_API_KEY` and optionally `ROCINANTE_MODEL` in the
 launching shell first (`.env` is not loaded automatically). Live model access
-is not verified by the fixture demo. Local decisions do not file or approve
-Kord sessions. Download selected specs, then use the existing `ship-mesh
---spec <file>` and `share` commands for that separate handoff.
+is not verified by the fixture demo. Local decisions do not approve Kord sessions.
+
+For a proposal, **Export comparison** regenerates both GLBs through Blender
+and offers downloads plus a computed comparison report. **Share with Kord**
+uploads that exact pair and saves a public comparison link on the revision.
+The destination is shown before sharing and follows `KORD_API_BASE`. Files
+are saved under `out/workbench/exports/vNNNN/`; failures preserve the proposal
+and expose an explicit retry. Sharing does not create an authenticated review
+session or post a comment. The CLI `ship-mesh --spec <file>` and `share`
+commands remain available too.
 
 For Blender exports and the torpedo tooling:
 

@@ -39,13 +39,47 @@ Model access comes from the process environment (`OPENAI_API_KEY`,
 access and structured-output compatibility before presenting this as a live
 model demo. A failed call must leave the accepted design and history intact.
 
-### 3. Kord handoff — next integration milestone
+### 3. Kord comparison handoff — implemented
 
-The local review is not a Kord review. Existing `ship-mesh`, `share` and
-`refit` commands provide the separate export/filing path. Next, connect a
-specific pending workbench revision to GLB generation and an explicit Kord
-filing action, persist its URL/session, and surface external failures without
-losing the local proposal. Do not imply that local approval sets a Kord verdict.
+Each proposal has an explicit **Export comparison** action, followed by
+**Share with Kord**. Export regenerates the selected revision and its accepted
+parent with Blender. This parent may differ from the preceding history item
+when a proposal was rejected. Files, source specs and a computed comparison
+report live under `out/workbench/exports/vNNNN/`.
+
+The workbench records SHA-256 hashes of the GLBs and checks them before
+upload. Sharing creates an anonymous public comparison at the displayed
+`KORD_API_BASE`, persists its URL and expiry, and reuses a saved URL on repeat
+requests. An export/upload failure preserves local review state. Interrupted
+operations become explicit retry states on restart. An uncertain failed
+upload can have reached Kord, so a retry may create another link.
+
+The local review is not a Kord review session. Authenticated version uploads,
+session verdicts and rationale comments remain a separate follow-up. No
+comments are automatically posted by this workbench.
+
+### Execution queue and parallelization
+
+| Work | Depends on | Execution / completion criterion |
+|---|---|---|
+| Revision export contract + saved handoff states | Existing local loop | First, serial. Exact accepted parent, artifacts, hashes, retry state. Implemented. |
+| Export/share controls + download links | Handoff contract | Can run alongside failure-path tests; integrated before browser verification. Implemented. |
+| Failure/restart/duplicate-request tests | Handoff contract | Can run alongside UI work. Tests cover preserved review state and stable share reuse. Implemented. |
+| Real Blender → Kord smoke test | Backend + UI | Complete: v1 → v3 exported via UI, public comparison created, overlay visually checked, link persisted. |
+| Live structured model smoke test | Credentials/model access | Independent of Kord work; next. Check SDK/schema compatibility and run one real request through the same loop. |
+| Load exported GLBs into the local comparison | Export contract | Independent of model access. Replace preview only after matching part IDs and framing both versions. |
+| Authenticated Kord review sessions | Shared comparison + configured local Kord | Later, serial: stable file identity, upload response handling, verdict refresh. Posting rationale comments requires explicit messaging authorization. |
+| Variable-mass mission solver | Existing physics tests | Independent of integrations; later. Reconcile endurance warnings with delta-v feasibility before adding moving arrival-time claims. |
+
+I am executing the integration dependencies serially in this worktree. UI
+work and failure tests are separable, but final acceptance is one end-to-end
+check; parallel tasks must not edit the shared state/API contract concurrently.
+
+Validation for this milestone: 44 tests passed, one existing simulator test
+skipped; changed Python files lint clean. Real fixture comparison:
+https://work.withkord.com/d/X3pHo1_eA4TrU7BM_KC24_EQ (expires per Kord's share TTL).
+The development server processes requests serially; model/export/upload calls
+temporarily occupy it. Background jobs and concurrent viewers are later work.
 
 ### 4. Fidelity — after the loop
 
