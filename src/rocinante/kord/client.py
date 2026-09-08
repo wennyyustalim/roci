@@ -9,8 +9,9 @@ THREE PATHS, IN THE ORDER YOU SHOULD REACH FOR THEM:
 1. `share_diff()` -- anonymous. POST two files to `/api/diff/share`, get back a
    `/d/<token>` URL rendering Kord's real 3D diff of them: heat map, overlay,
    side-by-side, part tree. No account, no token, no Kord change. `.glb` is an
-   accepted format there, so a regenerated hull is one HTTP call away from a
-   shareable, live comparison. THIS IS THE DEMO PATH. Keep it working.
+   accepted format there, so regenerated `.glb` hulls and `.ork` torpedoes are
+   each one HTTP call away from a shareable, live comparison. THIS IS THE DEMO
+   PATH. Keep it working.
 
 2. `sign_in()` + `upload_version()` / `open_review_session()` -- authenticated.
    Kord's REST API is cookie-session only (`lib/api/with-auth.ts`); there is no
@@ -40,6 +41,13 @@ PUBLIC_BASE = "https://work.withkord.com"
 # together -- the platform rejects a bigger one at the edge, before Kord's code
 # runs. Past that, go through the signed-upload path instead.
 MULTIPART_BUDGET = 3_500_000
+
+
+def _content_type(path: Path) -> str:
+    """Return Kord's declared MIME type for formats it dispatches by MIME."""
+    if path.suffix.lower() == ".ork":
+        return "application/zip"
+    return "application/octet-stream"
 
 
 class KordError(RuntimeError):
@@ -95,7 +103,9 @@ class KordClient:
         """Mint a public Kord diff link for two files. Returns the API payload.
 
         `before` and `after` are any two files Kord can render -- for us, two
-        `.glb` hulls, or two `.ork` torpedoes once Kord learns the format.
+        `.glb` hulls or two `.ork` OpenRocket torpedoes. Kord dispatches ORK
+        by its `application/zip` MIME type, so do not let httpx default it to
+        `application/octet-stream`.
         """
         before, after = Path(before), Path(after)
         for path in (before, after):
@@ -112,7 +122,10 @@ class KordClient:
         with before.open("rb") as fa, after.open("rb") as fb:
             resp = self.http.post(
                 "/api/diff/share",
-                files={"before": (before.name, fa), "after": (after.name, fb)},
+                files={
+                    "before": (before.name, fa, _content_type(before)),
+                    "after": (after.name, fb, _content_type(after)),
+                },
                 data=data,
             )
         return self._json(resp, "diff share")
@@ -138,7 +151,7 @@ class KordClient:
                 signed.get("method", "PUT"),
                 signed["uploadUrl"],
                 content=path.read_bytes(),
-                headers={"content-type": "application/octet-stream"},
+                headers={"content-type": _content_type(path)},
                 timeout=180,
             )
             if put.is_error:

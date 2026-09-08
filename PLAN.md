@@ -137,13 +137,11 @@ Three paths, in the order to reach for them:
 3. The hosted MCP server. OAuth 2.1, and deliberately cannot write file bytes.
    Right for an interactive agent, wrong for a CLI uploading a mesh. Not used.
 
-**`.ork` support in Kord is not today's work.** A new format there is a
-registry row, a viewer type, an extraction branch, two loader arms, a
-dispatcher arm and a viewer pair, under 70% coverage enforcement — a day on
-its own, in a repo the rules push out of the demo anyway. The torpedo's
-structured diff goes in the review comment instead, which costs twenty minutes
-and says the same thing. Open the `.ork` PR next week; mention it on stage in
-one sentence as what comes next.
+**`.ork` is supported in Kord.** The anonymous diff playground and the
+authenticated version/review flow accept OpenRocket designs. Send `.ork` as
+`application/zip` (not a generic octet stream) so Kord dispatches it to the
+OpenRocket viewer. The torpedo's structured diff remains useful review context,
+but it complements Kord's native comparison rather than substituting for it.
 
 ## Two tracks
 
