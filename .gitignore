@@ -13,7 +13,7 @@ build/
 .worktree-port
 
 # Local agent worktrees
-.claude/worktrees/
+.dork/worktrees/
 
 # Build products of the design loop
 out/
