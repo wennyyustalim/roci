@@ -1,276 +1,235 @@
-# Build plan
+# Demo and product checklist
 
-## Current implementation plan · skeleton first
+The refit loop is working. The next milestone is a convincing, rehearsed demo:
+**one sentence → a visible engineering change → computed consequences → a
+reviewable comparison → a human decision → the next revision.**
 
-The immediate milestone is a complete local loop, with basic shapes:
-**accepted spec → proposal → validated spec → geometry + consequences →
-human decision → next proposal from the accepted spec.** Visual polish comes
-after this works. The timed hackathon plan below is historical context;
-this section supersedes its sequencing and scope.
+This checklist works backward from that outcome and replaces the old hourly
+schedule. [DEMO.md](DEMO.md) is the operator runbook; the
+[historical plan](docs/PLAN-HISTORY.md) preserves the original schedule,
+integration research, and cut decisions. Checked items are verified work;
+unchecked items are remaining work or explicitly deferred scope. Publishing,
+recording and submission are not marked complete without evidence.
 
-### 1. Local vertical slice — implemented
+**Recommended next:** P1.1, the single refit that changes both visible geometry
+and performance. Develop that alongside P1.2 ship fidelity; then integrate and
+rehearse before expanding integrations. Keep the schema and part IDs stable so
+those tracks can proceed independently.
 
-- `rocinante demo --port 3001` starts a loopback-only workbench.
-- Start with the baseline ship; choose one of three explicitly labeled
-  fixture proposals: eight more torpedoes, extra armor, or a longer cone.
-  Fixtures do not interpret arbitrary English or call a model.
-- Validate a complete `ShipSpec`; compute the structured diff, performance,
-  crew limit and Tycho–Ceres mission using existing Python code.
-- Render a tapered hull, cone, box PDCs and cylinder/cone torpedoes directly
-  from the returned spec. Keep part IDs aligned with Blender. Ghost the
-  proposal's accepted parent and highlight affected assemblies.
-- Show pending / approved / rejected history. Only approval advances the
-  active design. Rejecting retains the proposal for comparison. Save state
-  atomically to `out/workbench/workbench.json`; reload it on restart.
-- Download any selected ship spec. No Blender, simulator, account or model
-  key is needed for fixtures. The 3D module currently loads from a CDN.
+## Finish line — recorded and live demo
 
-Acceptance: propose torpedoes, inspect capacity +8 and preserved endurance,
-approve, propose armor, inspect the performance penalty, reject, propose a
-cone extension and verify its parent is still the approved torpedo revision.
-Refresh and restart without losing the review history.
+These are the final acceptance checks, performed after the P1 work below.
 
-### 2. Live proposal path — real Astra calls verified
+- [ ] Freeze the demo scope and select the exact request that opens the demo.
+- [ ] Rehearse the 60-second narration against actual model, export and upload
+  latency; record the timing rather than assuming the steps fit.
+- [ ] Rehearse the three-minute live demo, including approval, rejection, and
+  a next proposal based on the accepted parent.
+- [ ] Make the central frame readable: changed ship geometry, its previous
+  version, and computed consequences visible at presentation size.
+- [ ] Prepare the live workbench and an already-loaded real Kord comparison
+  in separate tabs; verify the public link has not expired.
+- [ ] Prepare a clearly labeled fixture fallback and a saved real-model run;
+  rehearse recovering from model, network, export and viewer failures.
+- [ ] Record and review the 60-second video; check narration, cursor movement,
+  text legibility and whether the comparison gets a quiet moment on screen.
+- [ ] Prepare judge Q&A: what was built when, how Astra was used in development,
+  physics limits, Kord's separate role, and generated fan-work geometry.
+- [ ] Confirm applicable event deadlines and submission requirements. The
+  archived plan says submission/video at 17:30 and stage at 18:45; those are
+  historical targets, not a newly verified schedule.
+- [ ] Verify public repository access, final source/version, README build
+  boundary, all team members, and video link; submit and save confirmation.
 
-`rocinante demo --live` swaps fixture selection for free text and calls the
-existing `RefitAgent.propose()`. The remainder of the loop is identical.
-Model access comes from the process environment (`OPENAI_API_KEY`,
-`ROCINANTE_MODEL`); use `uv run --env-file .env` to load local configuration.
-Startup rejects an empty API key. The installed SDK supports the structured
-parse call. Real `gpt-6-astra` access and structured output were verified with
-the main project's configured `.env`: the torpedo request returned a complete
-validated spec in 19.35 seconds, adding eight slots and preserving computed
-cruise endurance. A real armor request returned the expected performance cost.
-The UI, saved revision and exported comparison retain the actual model name.
-A separate `gpt-5-mini` request also succeeded. Failed calls preserve the
-accepted design and return sanitized actionable errors.
+## P1 — make the working loop tell the demo story
 
-### 3. Kord comparison handoff — implemented
+### P1.1 — one refit with a visible change and a measurable consequence
 
-Each proposal has an explicit **Export comparison** action, followed by
-**Share with Kord**. Export regenerates the selected revision and its accepted
-parent with Blender. This parent may differ from the preceding history item
-when a proposal was rejected. Files, source specs and a computed comparison
-report live under `out/workbench/exports/vNNNN/`.
+The current live torpedo ask increased magazine capacity and fuel but left
+external geometry unchanged. The cone ask changed shape but preserved
+performance. Neither alone supplies the original “one change, four
+consequences” frame. Do not invent a geometry or physics change to bridge that.
 
-The workbench records SHA-256 hashes of the GLBs and checks them before
-upload. Sharing creates an anonymous public comparison at the displayed
-`KORD_API_BASE`, persists its URL and expiry, and reuses a saved URL on repeat
-requests. An export/upload failure preserves local review state. Interrupted
-operations become explicit retry states on restart. An uncertain failed
-upload can have reached Kord, so a retry may create another link.
+- [ ] Choose and test an explicit request that legitimately changes both
+  geometry and performance. Candidate: add two torpedo tubes and six magazine
+  slots while preserving cruise burn time; inspect the model's actual design.
+- [ ] Verify the changed tubes or hull section are visible in both exported
+  GLBs and Kord, and that capacity, mass and drive limits follow the spec.
+- [ ] Make sure the UI distinguishes displaced geometry from an affected
+  assembly whose exterior is unchanged.
+- [ ] Update the 60-second script to narrate the verified request and actual
+  numbers. Remove the remaining “changed geometry” implication when showing
+  the magazine-only torpedo proposal.
+- [ ] Retain three stage-ready asks with saved inputs, outputs, rationale,
+  computed comparisons, model identity and timing; record enough prompt/code
+  provenance to explain and reproduce the runs.
+- [ ] Document a concrete account of how Astra helped develop the project;
+  saved ship proposals alone do not tell the development story.
 
-The local review is not a Kord review session. Authenticated version uploads,
-session verdicts and rationale comments remain a separate follow-up. No
-comments are automatically posted by this workbench.
+### P1.2 — ship fidelity and comparison presentation
 
-### Execution queue and parallelization
+- [ ] Improve the generated hull silhouette and proportions until it reads
+  as the Roci; keep all geometry parametric and preserve semantic part IDs.
+- [ ] Improve materials and lighting, including the drive cone, so shape and
+  changed-part highlights remain legible without hiding either version.
+- [ ] Verify tube/PDC placement, nose/hull continuity and framing across the
+  baseline and chosen stage refits after geometry changes.
+- [ ] Recheck local ghost/highlight controls and Kord overlay/side-by-side
+  views after export; document camera recovery where needed.
+- [ ] Check the full demo at the actual presentation resolution: readable
+  consequences, visible review actions, and minimal scrolling/tab switching.
+- [ ] Generate and inspect an optional cold-open hero image with `ship-hero`
+  after the live ship is ready. Cut this before cutting refit work.
 
-| Work | Depends on | Execution / completion criterion |
+### P1.3 — mission and crew feedback that can be narrated honestly
+
+- [ ] Reconcile the conservative endurance warning with delta-v feasibility;
+  the baseline currently has positive delta-v margin but warns “tanks last
+  35 h, burn is 42 h.” Explain the estimate clearly until the solver changes.
+- [ ] Add a compact mission visualization driven by computed transfer data:
+  burn, flip and arrival, with fuel margin/feasibility changing on refit.
+- [ ] Keep fixed-route, fixed-acceleration arrival times fixed. Only introduce
+  changed timing when the underlying modeled trajectory actually changes.
+- [ ] Add the planned compact crew-versus-drive acceleration bar, using the
+  weakest crew member as the bound. Keep the existing numeric limits usable
+  if the bar is cut.
+
+## P2 — complete the deeper review and engineering loop
+
+### P2.1 — authenticated Kord review sessions
+
+Anonymous public comparison is sufficient for the current demo. These tasks
+restore the original “file it for review” beat; local approval is not a Kord
+verdict.
+
+- [ ] Bring up and verify the separate local Kord/Supabase environment and
+  dedicated demo account. Recheck historical provisioning rather than
+  assuming the old local service is still available.
+- [ ] Establish stable file identity: upload a baseline, then revise the same
+  tracked file instead of creating unrelated filenames.
+- [ ] Handle first-upload and changed-upload responses explicitly; use the
+  `reviewSessionId` returned by upload rather than opening a duplicate session.
+- [ ] Persist the revision-to-file/session mapping and expose the real review
+  session link and pending state in the workbench.
+- [ ] Implement and test verdict refresh, including rejected and pending
+  sessions, and define how Kord verdicts relate to local acceptance.
+- [ ] Prepare the rationale and computed comparison as a review comment;
+  posting it requires explicit messaging authorization before the final send.
+- [ ] Verify authenticated failures, retries and restart recovery without
+  corrupting the accepted local design or creating duplicate review sessions.
+- [ ] Rehearse the complete authenticated review beat before claiming it in
+  DEMO.md; retain the anonymous comparison fallback.
+
+### P2.2 — physics and packaging fidelity
+
+- [ ] Implement a variable-mass mission/endurance solver with meaningful
+  conservation and feasibility tests against the current closed-form model.
+- [ ] Integrate its results into warnings and mission display; keep model
+  assumptions explicit and all displayed values computed from the spec.
+- [ ] Model tank and magazine packaging/volume constraints before claiming
+  extra propellant or ammunition physically fits inside an unchanged hull.
+- [ ] Propagate packaging changes through validation, diffing, geometry and
+  the proposal prompt together; reject invalid arrangements before review.
+
+### P2.3 — demo resilience and maintainability
+
+- [ ] Move slow model/export/upload work off the request thread so the server
+  stays responsive; specify job states and serialize state mutations first.
+- [ ] Add concurrent-request tests only once that execution model exists,
+  covering pending-proposal conflicts and duplicate export/share requests.
+- [ ] Reduce the viewer's CDN dependency so the prepared local demo can show
+  geometry when venue internet is unavailable.
+- [ ] Provide a clear expired-share recovery path that preserves the original
+  revision and records any newly created comparison link.
+- [ ] Turn the manual live acceptance run into a repeatable opt-in smoke
+  command with saved evidence, keeping paid model calls and public uploads
+  explicit and out of ordinary unit tests.
+- [ ] Check README's opening claims against implemented behavior: remove
+  unsupported cone/performance examples and claims of real torpedo simulation.
+- [ ] Refresh the README build boundary for the added handoff, GLB viewer,
+  model failure handling, provenance and regression coverage.
+
+## P3 — deferred product backlog, not demo prerequisites
+
+These were cut or deferred in the source plans. They remain visible here so
+“all todos” does not silently turn into a commitment to build them now.
+
+- [ ] Implement and verify the OpenRocket torpedo simulator backend; it is
+  currently a stub despite the existing `.ork` import/export tooling.
+- [ ] Implement and verify the RocketPy fallback backend.
+- [ ] Connect real torpedo simulation results to the design/review viewer;
+  keep synthetic runs clearly labeled until then.
+- [ ] Add simulated torpedo flights and ship combat: PDC behavior, pursuit
+  curves and tracers, after the underlying simulation is real.
+- [ ] Revisit generated interiors/decks/galley only after the exterior refit
+  and demo are stable; the historical plan explicitly cut interior work.
+- [ ] Add cinematic animation beyond the existing slow orbit if still useful.
+- [ ] Revisit the Ring/slow-zone experience last.
+
+## Completed — protect these invariants
+
+- [x] Validate complete `ShipSpec` proposals; compute structured changes, mass,
+  delta-v, acceleration, capacity, conservative endurance and mission checks.
+- [x] Provide labeled deterministic torpedo, armor and cone fixtures.
+- [x] Run real Astra structured proposals for all three asks; first request
+  completed in 19.35 seconds. A separate gpt-5-mini request also succeeded.
+- [x] Show and persist the actual model used, including exported reports.
+- [x] Handle missing credentials, API/refusal/incomplete/validation failures
+  without advancing the design; close owned SDK clients.
+- [x] Preserve pending/approved/rejected history; only approval advances the
+  active design, and a rejected proposal never becomes the next parent.
+- [x] Persist local state atomically and recover it after server restart.
+- [x] Render schematic geometry before export, then load actual Blender GLBs
+  with a ghosted parent, semantic part highlights and combined framing.
+- [x] Fix the generated nose discontinuity and add a regression test.
+- [x] Export the exact accepted-parent/proposal pair with source specs,
+  comparison report, GLB downloads and SHA-256 hashes.
+- [x] Share the verified pair anonymously with Kord, persist URL/expiry, reuse
+  saved links, and retain retry states without discarding review history.
+- [x] Verify the real Astra loop in the browser, including exported geometry,
+  Kord overlay, rejection, correct next parent, restart and share reuse.
+- [x] Keep a saved real Astra run and a separate fixture rehearsal.
+- [x] Provide demo/restart instructions and document current physics limits.
+- [x] Verify 67 tests passed, 1 skipped at the refit milestone, with changed
+  Python lint, JavaScript syntax and diff checks passing.
+
+Evidence from the completed milestone: `out/demo-astra/acceptance.json`,
+`live-smoke.json`, `workbench.json` and `exports/`. These are local, ignored
+artifacts, not a portable checked-in demo package. The
+[verified Astra comparison](https://work.withkord.com/d/17iuGJIpCOLwwZreHoqIQwrI)
+expires 15 September 2026 at 18:57 UTC. See DEMO.md for restart instructions.
+
+## Execution order and parallel ownership
+
+| Track | Can run alongside | Serial gate before integration |
 |---|---|---|
-| Revision export contract + saved handoff states | Existing local loop | First, serial. Exact accepted parent, artifacts, hashes, retry state. Implemented. |
-| Export/share controls + download links | Handoff contract | Can run alongside failure-path tests; integrated before browser verification. Implemented. |
-| Failure/restart/duplicate-request tests | Handoff contract | Can run alongside UI work. Tests cover preserved review state and stable share reuse. Implemented. |
-| Real Blender → Kord smoke test | Backend + UI | Complete: v1 → v3 exported via UI, public comparison created, overlay visually checked, link persisted. |
-| Live structured model smoke test | Credentials/model access | Complete: real Astra torpedo and armor requests parsed and produced computed consequences; model provenance is persisted. |
-| Load exported GLBs into the local comparison | Export contract | Complete. Real GLBs load with part highlights, ghosted parent, combined framing and schematic fallback. Corrected the malformed generated nose profile. |
-| Authenticated Kord review sessions | Shared comparison + configured local Kord | Later, serial: stable file identity, upload response handling, verdict refresh. Posting rationale comments requires explicit messaging authorization. |
-| Variable-mass mission solver | Existing physics tests | Independent of integrations; later. Reconcile endurance warnings with delta-v feasibility before adding moving arrival-time claims. |
+| P1.1 request and demo narrative | P1.2 geometry; P1.3 display clarification | Agree the target edit and preserve the schema/part-ID contract. |
+| P1.2 hull/materials | Model prompt work; Kord client work | Re-export baseline and chosen refits, then visually verify both viewers. |
+| P1.3 mission/crew display | Geometry and model work | Agree displayed quantities; solver-dependent UI waits for P2.2. |
+| P2.1 Kord sessions | Geometry and physics | Local service/account → stable file → session → verdict → authorized comment. |
+| P2.2 solver/packaging | Kord client work | Define schema/physics contract before dependent prompt/UI/geometry edits. |
+| P2.3 background jobs | Independent docs/artifact preparation | Agree job/state transitions before UI and concurrency tests. |
+| Recording and submission | Q&A and attribution preparation | Integrate → acceptance rehearsal → freeze → record → review → submit. |
 
-Execution this session used three parallel agent lanes: model contract and
-failure handling (Sol), GLB viewer and geometry (Terra), and persistence/handoff
-regression audit (Sol). The manager handled CLI startup, the runbook, browser
-rehearsal, public sharing and restart verification serially after integration.
+Use separate file ownership or worktrees for independent tracks. A single
+integrator owns shared schema/state changes and the final acceptance run.
+Do not parallelize multiple edits to the same API or persisted-state contract.
 
-Browser rehearsal on 8 September completed the fixture loop: v1 torpedoes
-approved, v2 armor rejected, v3 cone based on accepted v1. Real corrected
-Blender GLBs were exported, loaded locally, shared with Kord and visually
-inspected in side-by-side and overlay modes. Restart preserved all revisions,
-the parent, and the share URL. Duplicate sharing reused the saved link.
+## Constraints that remain in force
 
-Current fixture comparison:
-https://work.withkord.com/d/tnFvr4eoj9loJTEAvNEZyWMO
-(expires 15 September 2026, 18:49 UTC). Saved rehearsal is
-`out/demo-fixture`. The live Astra workbench now runs at http://127.0.0.1:3001/
-with separate state in `out/demo-astra`.
-In Kord's overlay view, scroll out over the canvas if switching modes leaves
-the camera too close. The local viewer frames both versions automatically.
-
-The development server processes requests serially; model/export/upload calls
-temporarily occupy it. Background jobs and concurrent viewers are later work.
-Validation: **67 passed, 1 skipped**; changed Python files pass Ruff, browser
-module syntax passes Node, and the live CLI rejects a missing key as expected.
-Final live acceptance is complete against `out/demo-astra`: three real Astra
-proposals, torpedoes approved, armor rejected, cone based on approved v1,
-correct source specs and hashes in exported GLBs, local rendering, real Kord
-sharing and overlay inspection, server restart, and duplicate-share reuse.
-The first structured request took 19.35 seconds. Evidence is saved locally in
-`out/demo-astra/acceptance.json`, `live-smoke.json`, `workbench.json` and exports.
-
-Real Astra comparison: https://work.withkord.com/d/17iuGJIpCOLwwZreHoqIQwrI
-(expires 15 September 2026 at 18:57 UTC). See DEMO.md for the exact restart
-command using the main project's configured `.env`; credentials are not copied
-into the worktree or checked in. The model selected in that env is `gpt-5-mini`,
-so the verified Astra launch explicitly sets `ROCINANTE_MODEL=gpt-6-astra`.
-
-The end-to-end milestone is demoable. Further work is fidelity and the later
-integration/physics tracks listed above.
-
-### 4. Fidelity — after the loop
-
-Generated GLBs now replace primitives after export, retaining semantic part
-IDs. Material polish and closer ship proportions remain later work. Tank
-packaging and volume constraints are not yet modeled. Combat, interior,
-torpedo flight and cinematic animation are out of this slice.
-
-### Physics/display constraints
-
-- Fixed route + fixed acceleration means unchanged flip and arrival times.
-  Show delta-v margin and mission warnings; do not animate invented timing gains.
-- Cone length alone has no performance consequence in the current model.
-- Armor changes mass, but not exterior dimensions in the current schema.
-  Highlighting means an affected part, not necessarily displaced geometry.
-- Cruise endurance currently assumes initial wet mass throughout the burn;
-  label this conservative estimate. A variable-mass solver is later work.
-- Fixture edits are deterministic; all displayed consequences are computed.
-
-## Historical hackathon schedule (superseded above)
-
-**Hacking runs 10:30 to 17:30. Submission and the video are due at 17:30.**
-That is seven hours, and about **5.5 hours of building** once you subtract
-lunch and an hour to record and submit. The previous version of this file was
-budgeted for thirteen and scheduled beat 4 for 16:30 — after submissions
-close. That was the plan's one fatal bug.
-
-[DEMO.md](DEMO.md) is the target; this is the route to it. Read that first.
-
-The measure of the day is **beat 2**: two hulls superimposed in Kord, the
-changed section lit, the flight numbers moving underneath. Protect it.
-
-## What already works, as of 10:30
-
-Verified this morning, before the clock started:
-
-- `ShipSpec` and every derived property — Δv 497 km/s, dry 2,148 t, 20
-  torpedoes, 12.1 g, crew-limited to 9 g by Naomi. Rocket equation under test.
-- The brachistochrone solver. `rocinante burn Tycho Ceres` returns flip at
-  20h 50m, arrival 41h 40m, Δv 491 km/s.
-- `blend/build_ship.py` regenerates the whole ship from a spec in **0.9 s**.
-- `KordClient.share_diff()` mints a live 3D diff on production Kord in one
-  call, anonymously. Smoke-tested against two regenerated hulls.
-- The authenticated path, against **local** Kord: `astra@demo.withkord.com` is
-  provisioned in the Kord organization and allowlisted, sign-in works, and
-  uploading a hull opens a review session. One detail worth knowing — the
-  folder-upload route **opens the review session itself** and returns
-  `reviewSessionId`; there is nothing to create afterwards.
-- 33 tests, lint clean.
-
-Not yet verified: posting the comment onto that session, and reading its
-verdict. The dev server went down mid-test. Both are one call each and the
-session they attach to already exists.
-
-So the day starts with the demo's spine already standing. Everything below
-makes it *good*, not *exist*.
-
-## The Kord integration, settled
-
-Kord is a separate, pre-existing product. **Nothing in the demo requires a
-change to it**, and that is deliberate — the rules say a feature added to your
-startup must live in an isolated public repo, so the hackathon contribution is
-all on this side of the HTTP boundary.
-
-Three paths, in the order to reach for them:
-
-1. **`POST /api/diff/share` — anonymous, no account, already in production.**
-   Two files in, a `/d/<token>` URL out, rendering Kord's real 3D diff: heat
-   map, overlay, side-by-side, part tree. `.glb` is an accepted format there.
-   **This is the demo path.** It needs nothing from anyone.
-2. **`/api/auth/demo-login` → upload → review session.** Kord's REST API is
-   cookie-session only; there is no bearer token, which is why the old client
-   would have 401'd on every call. The demo-login route is the supported way
-   in — but **not against production.** Two locks guard it: the address must
-   sit under `demo.withkord.com` (so no real address can ever pass), and
-   `DEMO_LOGIN_EMAILS` must name it. That variable is already set in
-   production, to `reviewer@demo.withkord.com` — **the account OpenAI's plugin
-   directory reviews the Kord MCP connector with.** Rotating its password to
-   borrow it would break an in-flight directory review and the continuous
-   safety testing behind it. Adding a second address instead means editing the
-   variable, and Vercel has no update — it is `env rm` then `env add`, and
-   `vercel env rm` is a NEVER rule in Kord's CLAUDE.md.
-
-   So: **run this beat against local Kord.** `.env.local` points at a genuinely
-   local Supabase (127.0.0.1:54321), `provision-demo-reviewer.mts` mints a
-   reviewer there with no production reach, and `KORD_API_BASE` already
-   switches rocinante over. It also removes a live network dependency from the
-   stage demo, which is worth having on its own.
-3. The hosted MCP server. OAuth 2.1, and deliberately cannot write file bytes.
-   Right for an interactive agent, wrong for a CLI uploading a mesh. Not used.
-
-**`.ork` is supported in Kord.** The anonymous diff playground and the
-authenticated version/review flow accept OpenRocket designs. Send `.ork` as
-`application/zip` (not a generic octet stream) so Kord dispatches it to the
-OpenRocket viewer. The torpedo's structured diff remains useful review context,
-but it complements Kord's native comparison rather than substituting for it.
-
-## Two tracks
-
-They meet at glTF. The part-naming convention is already fixed and
-`build_ship.py` writes it: every mesh carries `rocinante_part`, named
-`hull_*`, `drive_*`, `pdc_*`, `tube_*`, `deck_*`. Kord's viewer reads node
-names into its part tree, so the names are load-bearing. Do not rename them.
-
-- **Model track** — the Astra call, the prompt, the refit. This is 50% of the
-  judging rubric and it starts first.
-- **Systems track** — geometry polish, the mission consequence, the viewer.
-
-## Order
-
-| Time | Model track | Systems track |
-|---|---|---|
-| 10:30 | ~~Repo~~ done: github.com/wennyyustalim/roci. Decide local-vs-production Kord for the review-session beat. | |
-| 10:45 | **Wire `RefitAgent.propose()` against the real GPT-6 Astra.** Check the migration guide first — the Responses/`text_format` shape in `agent/refit.py` is written against the current SDK and may have moved. | Hull silhouette: proportions until it reads as the Roci. Geometry only, no greeble. |
-| 12:00 | Prompt iteration. Three asks that produce clean, single-cause diffs. Save the transcripts — "how you worked with the model" is 25%. | Materials and the light rig. This is where "pretty" comes from. |
-| 13:00 | The refit beat driven live: ask → spec → regenerate → Kord link. | Mission consequence: the burn line moves when the spec does. |
-| 14:00 | Second and third ask, as stage backups. Kord review session with the rationale attached. | Crew as a g-limit bound, rendered. One bar, not a screen. |
-| 15:00 | Buffer. Whatever slipped. | Cold-open render (`rocinante ship-hero`). |
-| 16:00 | **Feature freeze.** Both of you on the recording. | |
-| 16:30 | Record the 60-second video. Do it in three takes, keep the third. | |
-| 17:00 | Repo public, README built-before/built-during, all team members on the submission. **Submit.** | |
-
-## Timeboxes
-
-- **The hull: stop at 15:00 regardless.** It regenerates from a spec in under
-  a second; that property is worth more than any detail you could add, and
-  hand-placed geometry destroys it. Buy looks with lighting.
-- **Do not hand-model anything.** If it is not generated from `ShipSpec`, it
-  cannot survive a refit, and the refit is the demo.
-- **The interior is cut.** Not reduced — cut. The galley was a trap at 13
-  hours and it is impossible at 5.5.
-- **Do not reopen the torpedo geometry or the `.ork` writer.** Nose, tubes,
-  transitions and fins all build and export, and the round-trip test covers it.
-
-## Cut order
-
-1. The Ring.
-2. Combat entirely — PDCs, pursuit curves, tracers.
-3. The crew bar (keep the g-limit as a number in the panel).
-4. The mission consequence (fall back to the refit panel alone).
-5. The cold-open render (open on the live viewer instead).
-
-**Never cut the refit.** Two hulls in Kord with the numbers moving is the
-demo. If only that exists, you still have something worth showing.
-
-## Rules compliance — do these at 10:30, not at 17:25
-
-- **Public repo, with the boundary marked in the README.** The repo opens with
-  a single commit — the pre-hackathon history was lost before it was pushed —
-  so the "What was built when" section is the only record of the boundary.
-  That makes it load-bearing: keep it accurate, and name the files on each
-  side. The rule is an immediate-disqualification rule; being loud about it
-  turns a risk into credibility.
-- **Kord's own repo stays out of the demo.** Integrate over HTTP, say so.
-- **Fan work.** The disclaimer stays in the README's second paragraph.
-  Reference stills stay gitignored. Every polygon is generated by our code
-  from our spec — say exactly that if a judge asks.
-- **Never say "dashboard".** A dashboard as the main feature is a banned
-  project. The 3D superimposition is the subject; the numbers are its caption.
+- Keep the refit/comparison as the subject; numbers explain the engineering
+  change. Never cut the refit to make room for optional features.
+- Generate ship geometry from `ShipSpec`; preserve `rocinante_part` and
+  `hull_*`, `drive_*`, `pdc_*`, `tube_*`, `deck_*` identifiers.
+- Keep fixed-route timing and current armor/cone effects honest. An assembly
+  highlight does not imply displaced geometry or an unmodeled performance gain.
+- Keep Kord separate and integrate through its existing HTTP APIs. Anonymous
+  `/api/diff/share` remains the demo path. Authenticated work uses local Kord;
+  do not repurpose production's directory-review account or rotate credentials.
+  The hosted OAuth MCP path does not upload file bytes and is not used here.
+- Preserve the supported `.ork` MIME type (`application/zip`) and existing
+  round-trip tooling; do not reopen working torpedo geometry for demo polish.
+- Keep the fan-work disclaimer, generated-asset provenance, and accurate
+  built-before/built-during attribution. Keep reference stills out of git.
+- If time runs short, cut Ring, combat, crew bar, mission visualization and
+  hero shot before cutting the refit. Keep mission/crew numbers available.
