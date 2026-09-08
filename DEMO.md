@@ -8,13 +8,14 @@ local workbench. Authenticated Kord review sessions are a later milestone.
 ## Verified live run in this checkout
 
 The live Astra workbench is running at http://127.0.0.1:3001/ with saved state
-in `out/demo-astra`. It contains approved torpedoes (v1), rejected armor (v2),
-and a pending cone extension (v3) correctly based on v1. All three were real
-`gpt-6-astra` responses. Blender export, local GLB rendering, Kord overlay,
-server restart and saved-link reuse were verified.
+in `out/demo-stage-v2`. It contains a real `gpt-6-astra` two-tube refit (v1),
+pending review, with the updated faceted hull and exported Blender geometry.
+The local viewer shows the two added tubes in orange and the fuel-affected
+drive in blue. Server restart preserved the proposal and shared comparison.
+The earlier approve/reject/next-proposal rehearsal remains in `out/demo-astra`.
 
-[Open the real Astra comparison](https://work.withkord.com/d/17iuGJIpCOLwwZreHoqIQwrI)
-(expires 15 September 2026 at 18:57 UTC). The fixture fallback remains saved
+[Open the real Astra comparison](https://work.withkord.com/d/m51IXPuSIMKfRnoA-X2FyhiW)
+(expires 15 September 2026 at 19:27 UTC). The fixture fallback remains saved
 separately in `out/demo-fixture`.
 
 Restart this checkout's verified run with the main project's configured env:
@@ -22,10 +23,10 @@ Restart this checkout's verified run with the main project's configured env:
 ```bash
 ROCINANTE_MODEL=gpt-6-astra KORD_API_BASE=https://work.withkord.com \
   uv run --env-file /Users/w/Projects/rocinante/.env rocinante demo \
-  --live --port 3001 --out out/demo-astra
+  --live --port 3001 --out out/demo-stage-v2
 ```
 
-Use a new output directory for a fresh live rehearsal. The saved pending v3
+Use a new output directory for a fresh live rehearsal. The saved pending v1
 requires approval or rejection before a new request; the status banner says so.
 
 ## Start
