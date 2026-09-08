@@ -35,10 +35,10 @@ function schematicShip(spec, changed, ghost, geometryChanged=[]) {
   return group;
 }
 
-// A clearly labelled enlarged specimen makes the small carried rocket inspectable.
-function torpedoPreview(spec, hull) {
-  const group=new THREE.Group(); group.name="torpedo_preview";
-  group.userData={assembly_kind:"torpedo",assembly_offset:[0,0,0],rocinantePrimitive:true};
+// Loaded rounds stay at their physical spec dimensions, on their launch rails.
+function loadedTorpedo(spec, id, bay) {
+  const group=new THREE.Group(); group.name=id;
+  group.userData={assembly_kind:"torpedo",torpedo_id:id,rocinantePrimitive:true};
   const amber=new THREE.MeshStandardMaterial({color:0xffc16c,emissive:0xd88728,emissiveIntensity:.45,metalness:.45,roughness:.35});
   const bodyMaterial=new THREE.MeshStandardMaterial({color:0xe0e8ec,emissive:0xa76c27,emissiveIntensity:.18,metalness:.55,roughness:.35});
   let y=0;
@@ -64,9 +64,16 @@ function torpedoPreview(spec, hull) {
   shape.lineTo(r+fins.height_m,aft+fins.root_chord_m-fins.sweep_m-fins.tip_chord_m); shape.closePath();
   const geometry=new THREE.ExtrudeGeometry(shape,{depth:fins.thickness_m,bevelEnabled:false}); geometry.translate(0,0,-fins.thickness_m/2);
   for(let i=0;i<fins.count;i++) mesh(group,geometry,amber).rotation.y=i/fins.count*Math.PI*2;
-  const length=y+nose.length_m, scale=10/length;
-  group.scale.setScalar(scale);
-  group.position.set(hull.beam_m/2+9,-3,-4);
+  const length=y+nose.length_m;
+  const box=new THREE.Box3().setFromObject(bay), center=box.getCenter(new THREE.Vector3());
+  const side=Math.sign(center.z || -1), clearance=r+fins.height_m+.04;
+  group.position.set(center.x,center.y-length/2,side<0 ? box.min.z-clearance : box.max.z+clearance);
+  group.userData.assembly_offset=[Math.sign(center.x || 1)*5,0,side*11];
+  // A small screen-space ring marks the actual round without scaling its mesh.
+  const c=document.createElement("canvas"); c.width=c.height=64; const ctx=c.getContext("2d");
+  ctx.strokeStyle="#ffc568";ctx.lineWidth=3;ctx.beginPath();ctx.arc(32,32,23,0,Math.PI*2);ctx.stroke();
+  const marker=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false,sizeAttenuation:false,toneMapped:false}));
+  marker.position.y=length/2;marker.scale.set(.014,.014,1);marker.userData.torpedoMarker=true;group.add(marker);
   return group;
 }
 
@@ -76,25 +83,56 @@ function seeded(seed) { let s=seed>>>0; return ()=> { s=(s*1664525+1013904223)>>
 
 function galaxyTexture() {
   const w=2048, h=1024, canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h;
-  const ctx=canvas.getContext("2d"), rand=seeded(7);
-  ctx.fillStyle="#02040a"; ctx.fillRect(0,0,w,h);
-  // The band: a tilted sine of soft blobs, brighter and warmer toward the core.
-  const blob=(x,y,r,rgb,a)=> { const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,`rgba(${rgb},${a})`); g.addColorStop(1,`rgba(${rgb},0)`); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,2*r,2*r); };
-  for(let i=0;i<900;i++) {
-    const t=rand(), x=t*w, core=Math.exp(-((t-.42)**2)/.03);
-    const y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()-.5)*h*(.06+.10*core);
-    const warm=rand()<.4+core*.4;
-    blob(x,y,12+rand()*55*(0.5+core),warm ? "158,148,135" : "91,118,158",.018+.035*core);
+  const ctx=canvas.getContext("2d"), rand=seeded(7), pixels=ctx.createImageData(w,h);
+  // Fix the galactic plane in world space, crossing the default Roci bearing.
+  // It stays distant while the ship and nearby landmarks move as we orbit.
+  const forward=new THREE.Vector3(-.8,-.52,1).normalize();
+  const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0)).normalize();
+  const up=new THREE.Vector3().crossVectors(right,forward).normalize();
+  const normal=right.clone().multiplyScalar(.55).addScaledVector(up,.835).normalize();
+  const along=new THREE.Vector3().crossVectors(normal,forward).normalize();
+  const hash=(x,y)=>{let n=Math.imul(x,374761393)+Math.imul(y,668265263);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967295;};
+  function noise(x,y) {
+    const ix=Math.floor(x),iy=Math.floor(y); let u=x-ix,v=y-iy;
+    u=u*u*(3-2*u);v=v*v*(3-2*v);
+    return THREE.MathUtils.lerp(THREE.MathUtils.lerp(hash(ix,iy),hash(ix+1,iy),u),
+      THREE.MathUtils.lerp(hash(ix,iy+1),hash(ix+1,iy+1),u),v);
   }
-  for(let i=0;i<40;i++) { // dust lanes
-    const t=rand(), x=t*w, y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()-.5)*h*.05;
-    blob(x,y,25+rand()*60,"5,6,14",.45);
+  function cloud(x,y) {return .52*noise(x,y)+.27*noise(x*2.03+13,y*2.03+7)+.14*noise(x*4.1+37,y*4.1)+.07*noise(x*8.3,y*8.3+51);}
+  const direction=new THREE.Vector3();
+  for(let y=0;y<h;y++) {
+    const latitude=(.5-y/h)*Math.PI, cosLat=Math.cos(latitude), sinLat=Math.sin(latitude);
+    for(let x=0;x<w;x++) {
+      const longitude=(x/w-.5)*Math.PI*2;
+      direction.set(cosLat*Math.cos(longitude),sinLat,cosLat*Math.sin(longitude));
+      const lat=Math.asin(THREE.MathUtils.clamp(direction.dot(normal),-1,1));
+      const lon=Math.atan2(direction.dot(along),direction.dot(forward));
+      const offset=(noise(lon*5+20,3)-.5)*.038;
+      const d=lat-offset, detail=cloud(lon*18+100,lat*32+100);
+      const core=.55+.45*Math.exp(-(((lon-.18)/.65)**2));
+      const haze=Math.exp(-((d/.21)**2))*(.3+detail)*core;
+      const band=Math.exp(-((d/.075)**2))*(.18+detail*detail*2)*core;
+      // A branching, uneven dust lane cuts through the luminous star clouds.
+      const rift=lat-.021*Math.sin(lon*17)-.022*(noise(lon*29+8,6)-.5);
+      const dust=Math.exp(-((rift/.017)**2))*(.55+.4*noise(lon*43,lat*47));
+      const light=(haze*12+band*40)*(1-dust*.72);
+      const warm=Math.exp(-(((lon-.18)/.45)**2)), i=(y*w+x)*4;
+      pixels.data[i]=3+light*(.72+warm*.28);
+      pixels.data[i+1]=5+light*(.83+warm*.08);
+      pixels.data[i+2]=11+light*(1-warm*.14);
+      pixels.data[i+3]=255;
+    }
   }
-  // Fine distant stars belong to the sky, with only a few bright foreground stars.
-  for(let i=0;i<18000;i++) {
-    const t=rand(), x=t*w, y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()+rand()+rand()-1.5)*h*.12;
-    ctx.fillStyle=`rgba(183,199,221,${.08+rand()*.28})`;
-    ctx.fillRect(x,y,.35+rand()*.55,.35+rand()*.55);
+  ctx.putImageData(pixels,0,0);
+  // A faint unresolved star field keeps the galactic band behind the ship.
+  for(let i=0;i<12000;i++) {
+    const lon=(rand()-.5)*Math.PI*2, lat=(rand()+rand()+rand()-1.5)*.14;
+    direction.copy(forward).multiplyScalar(Math.cos(lon)*Math.cos(lat))
+      .addScaledVector(along,Math.sin(lon)*Math.cos(lat)).addScaledVector(normal,Math.sin(lat));
+    const x=(Math.atan2(direction.z,direction.x)/(Math.PI*2)+.5)*w;
+    const y=(.5-Math.asin(direction.y)/Math.PI)*h;
+    ctx.fillStyle=`rgba(175,190,210,${.05+rand()*.15})`;
+    const size=.25+rand()*.4;ctx.fillRect(x,y,size,size);
   }
   const texture=new THREE.CanvasTexture(canvas); texture.mapping=THREE.EquirectangularReflectionMapping; texture.colorSpace=THREE.SRGBColorSpace;
   return texture;
@@ -297,7 +335,7 @@ function neighbourhood() {
 }
 
 export function createScene(container) {
-  const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(40,1,.1,30000);
+  const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(40,1,.005,30000);
   const renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -306,13 +344,13 @@ export function createScene(container) {
   scene.background=galaxyTexture();
   scene.add(stars(3600,14000,1.15,11), stars(180,13000,2.5,13));
   const far=neighbourhood(); scene.add(far);
-  const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.5; controls.minDistance=1; controls.maxDistance=2500;
+  const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.5; controls.minDistance=.12; controls.maxDistance=2500;
   scene.add(new THREE.HemisphereLight(0xb9d4ff,0x1a2233,1.4));
   const sun=new THREE.DirectionalLight(0xfff1de,4.5); sun.position.set(600,900,-700); scene.add(sun);
   const fill=new THREE.DirectionalLight(0x9bc0ff,1.6); fill.position.set(-500,100,400); scene.add(fill);
   const models=new THREE.Group(); scene.add(models);
   const gltf=new GLTFLoader(), glbCache=new Map();
-  let loadRequest=0, lastUpdate="", torpedo=null;
+  let loadRequest=0, lastUpdate="", torpedoes=new Map();
   const assembly=createAssembly(models,camera,controls,container);
   container.addEventListener("assemblychange",event=>{far.visible=event.detail.focus===null && !event.detail.subject;});
 
@@ -370,15 +408,29 @@ export function createScene(container) {
       object.userData.rocinantePreviewMaterial=true;
     });
   }
-  function addTorpedo(spec) {
-    torpedo=torpedoPreview(spec.torpedo,spec.hull); models.add(torpedo);
+  function addTorpedoes(current, root) {
+    torpedoes=new Map();
+    const bays=[]; root.traverse(o=>{if(o.userData.rocinante_part?.match(/^tube_\d+$/) && !o.parent?.userData.rocinante_part?.match(/^tube_\d+$/)) bays.push(o);});
+    // Earlier detailed exports may already carry rounds; use the current instance specs.
+    for(const object of [...root.children]) if(object.userData.assembly_kind==="torpedo") root.remove(object);
+    for(const bay of bays) {
+      const id=bay.userData.rocinante_part.replace("tube_","torpedo_");
+      const round=loadedTorpedo(current.torpedoes?.[id] || current.spec.torpedo,id,bay);
+      torpedoes.set(id,round); models.add(round);
+    }
   }
+  function selectTorpedo(id, notify=true) {
+    const round=torpedoes.get(id); if(!round) return;
+    assembly.focus(null,round);
+    if(notify) container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{torpedo_id:id}}));
+  }
+  function clearSelection() { container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{torpedo_id:null}})); }
   function dispose(root) {
     const primitive=root.userData.rocinantePrimitive;
     root.traverse(object=> {
-      if(!object.isMesh) return;
-      if(primitive) object.geometry.dispose();
-      if(primitive || object.userData.rocinantePreviewMaterial) for(const material of Array.isArray(object.material) ? object.material : [object.material]) material?.dispose();
+      if(!object.isMesh && !object.isSprite) return;
+      if(primitive) object.geometry?.dispose();
+      if(primitive || object.userData.rocinantePreviewMaterial) for(const material of Array.isArray(object.material) ? object.material : [object.material]) { if(primitive) material?.map?.dispose(); material?.dispose(); }
     });
   }
   function clearModels() { for(const child of [...models.children]) { dispose(child); models.remove(child); } }
@@ -430,18 +482,23 @@ export function createScene(container) {
       if(child.userData.spin) child.rotation.z+=child.userData.spin*dt;
       if(child.userData.field) child.userData.field.uniforms.time.value+=dt;
     });
+    for(const round of torpedoes.values()) {
+      const marker=round.children.find(o=>o.userData.torpedoMarker);
+      marker.visible=camera.position.distanceTo(round.getWorldPosition(new THREE.Vector3()))>4;
+    }
     if(!assembly.movingCamera) controls.update();
     renderer.render(scene,camera);
   });
   function focus(name) {
     if(name==="ship") { reset(); return; }
     const body=far.userData.landmarks[name]; if(!body) return;
-    assembly.suspend();
+    clearSelection(); assembly.suspend();
     const radius=name==="ring" ? 570 : name==="tycho" ? 185 : 155;
     const direction=camera.position.clone().sub(body.position).normalize();
     assembly.moveCamera(body.position,frameDistance(radius,1.15),direction);
   }
   function reset() {
+    clearSelection();
     if(assembly.ready) assembly.expand(false); else { assembly.suspend(); fit(); }
   }
   const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
@@ -452,9 +509,11 @@ export function createScene(container) {
     const visible=object=> { for(let p=object;p;p=p.parent) if(!p.visible || p.userData.assemblyGhost) return false; return true; };
     const hits=raycaster.intersectObjects([models,far],true);
     for(const hit of hits) {
-      if(!hit.object.isMesh || !visible(hit.object)) continue;
+      if((!hit.object.isMesh && !hit.object.userData.torpedoMarker) || !visible(hit.object)) continue;
       for(let node=hit.object;node;node=node.parent) {
-        if(node===torpedo || partOf(node).startsWith("tube_")) return {kind:"torpedo"};
+        if(node.userData.torpedo_id) return {kind:"torpedo",id:node.userData.torpedo_id};
+        const part=partOf(node);
+        if(part.startsWith("tube_") && torpedoes.has(part.replace("tube_","torpedo_"))) return {kind:"torpedo",id:part.replace("tube_","torpedo_")};
         if(Object.values(far.userData.landmarks).includes(node)) return {kind:"landmark",name:node.name};
       }
       if(assembly.selectable(hit.object)) return {kind:"part",object:hit.object};
@@ -477,10 +536,10 @@ export function createScene(container) {
     activePointers.delete(event.pointerId);
     const click=press && press.id===event.pointerId && !press.dragged && Math.hypot(event.clientX-press.x,event.clientY-press.y)<=6;
     press=null; if(!click) return;
-    const hit=hitAt(event); if(!hit) return;
+    const hit=hitAt(event); if(!hit) { clearSelection(); assembly.frame(); return; }
     if(hit.kind==="landmark") focus(hit.name);
-    else if(hit.kind==="torpedo" && torpedo) assembly.focus(null,torpedo);
-    else assembly.pick(hit.object);
+    else if(hit.kind==="torpedo") selectTorpedo(hit.id);
+    else { clearSelection(); assembly.pick(hit.object); }
   },{capture:true});
   renderer.domElement.addEventListener("pointercancel",event=>{activePointers.delete(event.pointerId);press=null;});
   renderer.domElement.addEventListener("lostpointercapture",event=>{activePointers.delete(event.pointerId);press=null;});
@@ -488,12 +547,12 @@ export function createScene(container) {
   renderer.domElement.setAttribute("aria-label","Explore the Rocinante. Click the hull to disassemble or reassemble the ship. Click a deck, crew member, torpedo or distant landmark to zoom. Press Escape to reset view.");
   renderer.domElement.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   return {
-    fit, reset, focus,
-    setExpanded(on) { assembly.expand(on); },
+    fit, reset, focus, selectTorpedo,
+    setExpanded(on) { clearSelection(); assembly.expand(on); },
     focusDeck(index) { assembly.focus(index); },
     setRotate(on) { controls.autoRotate=on; },
     async update(current,previous,{ghost,highlight}) {
-      const signature=JSON.stringify([current.index,current.handoff?.artifacts,ghost,highlight]);
+      const signature=JSON.stringify([current.index,current.handoff?.artifacts,current.torpedoes,ghost,highlight]);
       if(signature===lastUpdate) return "unchanged";
       const request=++loadRequest;
       const artifacts=current.handoff?.artifacts;
@@ -520,7 +579,7 @@ export function createScene(container) {
           clearModels(); models.userData.rocinanteGlb=true;
           if(before && ghost) { paintExport(before,{ghost:true,changed:[]}); before.userData.assemblyGhost=true; models.add(centre(before)); }
           paintExport(after,{ghost:false,changed:highlight ? inputOnly : [],geometryChanged:highlight ? actualEdits : []}); models.add(centre(after));
-          highlightTubes(after); addTorpedo(current.spec);
+          highlightTubes(after); addTorpedoes(current,after);
           assembly.bind(); lastUpdate=signature;
           if(!keepCamera) fit();
           return exportedSource ? "export" : "demo";
@@ -531,7 +590,7 @@ export function createScene(container) {
       const after=schematicShip(current.spec,highlight ? current.changed_parts ?? [] : [],false,highlight ? current.geometry_changed_parts ?? [] : []);
       after.userData.rocinantePrimitive=true; models.add(after);
       if(previous && ghost) { const before=schematicShip(previous.spec,[],true); before.userData.rocinantePrimitive=true; before.userData.assemblyGhost=true; models.add(before); }
-      highlightTubes(after); addTorpedo(current.spec);
+      highlightTubes(after); addTorpedoes(current,after);
       assembly.bind();
       if(!keepCamera) fit();
       return "schematic";

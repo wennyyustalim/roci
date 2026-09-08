@@ -1,175 +1,147 @@
-# The end-to-end demo
+# The one-minute torpedo demo
 
-The demo spine is **intent → validated ShipSpec → computed consequences →
-Blender geometry comparison → human decision → next proposal**. Kord hosts a
-public comparison of the exported pair; approval and rationale remain in the
-local workbench. Authenticated Kord review sessions are a later milestone.
+The story is **one request → a validated torpedo design → an OpenRocket
+update → a Kord comparison of the previous and revised `.ork` files**.
+Valid revisions are accepted automatically. The one-minute presentation
+focuses on the torpedo; ship refits and approval/rejection are outside its script.
 
-## Verified live run in this checkout
+## Start and prepare
 
-The live Astra workbench is running at http://127.0.0.1:3001/ with saved state
-in `out/demo-stage-v2`. It contains a real `gpt-6-astra` two-tube refit (v1),
-pending review, with the updated faceted hull and exported Blender geometry.
-The local viewer shows the two added tubes in orange and the fuel-affected
-drive in blue. Server restart preserved the proposal and shared comparison.
-The earlier approve/reject/next-proposal rehearsal remains in `out/demo-astra`.
-
-[Open the real Astra comparison](https://work.withkord.com/d/m51IXPuSIMKfRnoA-X2FyhiW)
-(expires 15 September 2026 at 19:27 UTC). The fixture fallback remains saved
-separately in `out/demo-fixture`.
-
-Restart this checkout's verified run:
-
-```bash
-roci demo --out out/demo-stage-v2
-```
-
-Use a new output directory for a fresh live rehearsal. The saved pending v1
-requires approval or rejection before a new request; the status banner says so.
-
-## Start
-
-One command. It loads `.env`, serves the torpedo bay UI on port 3001, and
-tiles the screen: web UI top-left, OpenRocket top-right, Blender bottom-left,
-Kord bottom-right. Every ask is accepted as the ship; there is no review step
-in this demo. The UI shows how each ask propagated (Astra, physics, Blender,
-OpenRocket, Kord) and offers sample asks that cover arming the ship: more
-tubes and magazine, tube placement along the hull, and the torpedo itself.
+Install the project dependencies and have Blender and OpenRocket installed
+for the four-window presentation:
 
 ```bash
 uv sync --extra dev
-roci demo                              # live model when OPENAI_API_KEY is in .env
-roci demo --fixture --out out/demo-fixture   # deterministic rehearsal, no credentials
+bin/roci demo --live --out out/demo-minute
 ```
 
-`roci` is `bin/roci`; symlink it onto your PATH once. Comparisons go to
-whichever Kord `KORD_API_BASE` names in `.env` — the local one, so the
-comparison window is the same instance each revision uploads to. Start it
-first (`pnpm dev` in the Kord checkout); the demo says so at startup if it is
-not answering. Pass `--kord https://work.withkord.com` for the public one.
-Blender must be installed for Export comparison. Set `BLENDER_BIN` if it is
-not at `/Applications/Blender.app/Contents/MacOS/Blender`. The viewer loads
-Three.js from jsDelivr; sharing requires access to Kord. Primitive preview,
-review and physics work without Blender.
+`bin/roci` loads the repository's `.env`. Set `OPENAI_API_KEY` there;
+`ROCINANTE_MODEL` defaults to `gpt-6-astra`. `roci` can be a symlink to
+`bin/roci`. A bare installed `rocinante`/`roci` command needs configuration
+in its environment or an explicit `uv run --env-file .env` launch.
+Without `--live`, the demo uses live mode when a key is set and fixtures
+otherwise. `--live` fails early if the key is missing.
 
-The second Chrome window opens on Kord's comparison UI at `<kord>/diff` with
-nothing dropped on it. Each revision's link replaces it, so the comparison
-follows the ship as Astra rearms it. On the public Kord that page is the same
-one anyone gets; on the local one it is served by the dev server.
+The command serves http://127.0.0.1:3001/ and opens four windows:
 
-Stop the previous server first if reusing the port; the command refuses a
-busy port rather than opening windows onto someone else's workbench. The CLI
-checks for a key at startup in live mode. Real `gpt-6-astra` proposals were verified
-on 8 September: torpedoes, armor, and a cone extension through the same review
-loop. The first request completed in 19.35 seconds. `ROCINANTE_MODEL` defaults
-to `gpt-6-astra`; the actual model is shown and saved with each revision.
-Never narrate fixture output as a model response.
+```
+web UI   | OpenRocket
+---------+-----------
+Blender  | Kord
+```
 
-## Rehearse the complete loop
+Comparisons go to `--kord`, then `KORD_API_BASE`, then the public default
+`https://work.withkord.com`. For local Kord, start its supporting services
+and run `pnpm dev` in that checkout before starting the demo. The demo
+reports an unreachable Kord instance but does not start it.
+The Kord window begins at `/diff` or a saved comparison and follows each
+new shared revision.
 
-1. In live mode, submit the tested stage request:
+Set `BLENDER_BIN` for a nonstandard Blender installation. The browser viewer
+loads Three.js from jsDelivr. Window tiling needs the launching terminal's
+Automation access to Chrome and System Events. `--no-layout`, `--no-chrome`,
+`--no-blender`, `--no-openrocket`, and `--no-share` disable those features;
+`--no-blender` disables the Blender window, not automatic mesh export.
 
-   > Carry eight more torpedoes by adding two launch tubes and six magazine
-   > slots, without losing cruise burn time. Keep other design inputs unchanged
-   > except the propellant needed to preserve endurance.
+Use an unused `--out` directory for a fresh baseline. Stop the previous
+server before reusing port 3001, or supply another `--port`. Existing state
+is resumed rather than reset. If the UI supports selecting an individual
+loaded torpedo, select it before submitting the request and confirm the
+workshop targets that torpedo.
 
-   Two independent Astra calls returned only the three intended input changes:
-   tubes **4 → 6**, magazine **76.8 → 105.6 m³**, and propellant
-   **1000 → 1008.94 t**. Capacity rose **20 → 28**, dry mass rose **19.2 t**,
-   and the drive limit fell **12.07 → 11.96 g**. Cruise endurance still displays
-   **35.09 h**; fuel rounding increased it by 0.155 seconds, so there was no loss.
-   The fixture produces the same type of refit, but is explicitly not a model
-   call. Always inspect the actual output before narrating a new live result.
-2. Click **Export comparison**. Both the proposal and its accepted parent
-   regenerate through Blender. The viewer loads those actual GLBs and marks
-   affected parts. Orange marks geometry edits; blue marks input-only edits.
-   Count the two added tubes. The fuel change affects engineering inputs,
-   not the drive's shape. Toggle Previous hull and Changes, then Fit view.
-   Rotation starts off to keep the launch ports visible; enable it deliberately
-   when showing the silhouette.
-3. Click **Share with Kord**, then **Open Kord comparison**. Inspect the pair
-   in Kord's overlay view (scroll out over the canvas if the camera is too
-   close). The local comparison report and GLB downloads are
-   available beside the link. Keep the local workbench tab open for physics
-   and the review decision.
-4. Return and **Approve revision**. The active design advances to v1.
-5. Propose **Add 2 cm of hull armor and show the performance cost**. Inspect
-   lower delta-v and drive acceleration, then **Reject**. Armor changes mass,
-   not exterior dimensions in this schema; the hull highlight denotes the
-   affected assembly.
-6. Propose **Lengthen the drive cone by 4 m; keep engine performance unchanged**.
-   Check that the comparison is against accepted **v1**, not rejected v2.
-   Export the pair and inspect the longer cone. Its geometry changes without
-   invented performance gains.
-7. Refresh, then stop and restart the server using the same `--out` directory.
-   Check that decisions, v3's parent, and the saved Kord link survive. Reopening
-   or repeating Share on a shared revision reuses the saved link.
+## One-shot request
 
-Use a new `--out` directory to rehearse from a fresh baseline. Keep
-`out/demo-fixture` as a clearly labeled fallback; it is not a saved model run.
-A pending proposal must be approved or rejected before requesting another.
+Paste this before the clock starts, then submit once:
 
-## 60-second narration
+> Redesign only the selected torpedo in one revision. Set the ogive nose length to 15 cm; use four swept fins with 8 cm root chord, 4 cm tip chord, 7 cm semi-span and 4 cm sweep. Set the booster tube length to 30 cm. Set both body tubes to 35 mm outside diameter and the nose base to the same diameter. Use an Estes F15 motor, 29 mm diameter and 114 mm length, with a 6-second delay. Keep the payload tube length, wall thicknesses, materials, recovery, ballast and all other inputs unchanged, including the entire ship. Summarize the changes in one sentence; do not claim simulated flight performance.
 
-Use the tested stage request above, with the saved real comparison preloaded
-as a fallback. The measured model call took 20.108 seconds; do not promise an
-instant result. Full recording timing remains a rehearsal task.
+The motor dimensions and delay match the manufacturer's
+[Estes F15-6 specifications](https://edu.estesrockets.com/products/f15-6-engines).
+The wider body accommodates the generated motor mount in the design file.
+This is a proposed software-demo configuration; flight performance has not
+been established. Exact target dimensions make repeats predictable, but
+repeat on a fresh baseline to show the full difference.
 
-- **0:00–0:08:** Submit the request. “Eight more torpedoes: two new launch tubes,
-  six magazine slots, without losing cruise endurance.”
-- **0:08–0:25:** While the model works: “Astra returns a complete ship spec.
-  The geometry and every performance number are computed from it.”
-- **0:25–0:40:** Export and show the comparison. “Four launch tubes become six.
-  Capacity goes from twenty to twenty-eight. The extra payload adds nineteen
-  tonnes.” Pause on the two added tubes and the mass/capacity panel.
-- **0:40–0:52:** “We added fuel to preserve endurance. The heavier ship lowers
-  the drive limit by about a tenth of a g. The crew limit stays at nine.”
-- **0:52–1:00:** Approve locally. “The human decides whether the tradeoff is
-  acceptable. The next request starts from the approved design.”
+Expected changes from the checked-in `baseline_torpedo()` are:
 
-If model/export/upload latency exceeds the slot, explicitly switch to the
-saved real run. Keep the local workbench for computed consequences and review;
-Kord supplies the public 3D comparison. Do not imply the public Kord viewer
-contains the local physics panel.
+| Detail | Before | Requested after |
+|---|---|---|
+| Nose length | 10 cm | 15 cm |
+| Fin count | 3 | 4 |
+| Fin root / tip chord | 6 / 3 cm | 8 / 4 cm |
+| Fin semi-span / sweep | 4.5 / 3 cm | 7 / 4 cm |
+| Booster length | 25 cm | 30 cm |
+| Body / nose-base diameter | 25 mm | 35 mm |
+| Motor | Estes E12, 24 × 70 mm | Estes F15, 29 × 114 mm |
+| Total length | 55 cm | 65 cm |
 
-For the three-minute demo, include the rejected armor revision and the next
-cone proposal to prove that rejection does not advance the design.
+These are requested values, not a recorded Astra result. The combined prompt
+has not yet been rehearsed live. The earlier fins-only live run documented
+in PLAN.md took 29.4 seconds; allow additional time for export and upload.
 
-## Claims to keep accurate
+## Sixty-second script
 
-- Fixed route and acceleration give fixed flip and arrival times. Do not claim
-  a refit moves those times. Cruise endurance is a conservative initial-wet-mass
-  estimate; its warning is not a variable-mass trajectory simulation.
-- Tank packaging and volume constraints are not modeled. Added fuel is an
-  engineering estimate, not a demonstrated tank installation.
-- This milestone uses local approval and anonymous Kord comparisons. It does
-  not post rationale comments or set an authenticated Kord verdict.
-- OpenRocket and RocketPy simulator backends remain stubs; do not claim the
-  torpedoes were simulated. Combat, interiors, and cinematic animation are out
-  of scope until the refit loop is complete.
-- Kord is a separate, pre-existing product. See README for the build boundary.
-  This is unaffiliated fan work, with geometry generated from our own specs.
+- **0:00–0:05:** Submit. “Redesign this torpedo: longer nose, four larger fins,
+  wider body, and a new motor—all in one request.”
+- **0:05–0:25:** While Astra works: “Astra returns a structured engineering
+  design. Our code validates it and writes the OpenRocket file.”
+- **0:25–0:40:** When ready, show OpenRocket. “Here is the revised torpedo.”
+  Point out the longer nose and larger fin set, then the motor configuration.
+- **0:40–0:55:** Show Kord's comparison and Changes list. “The previous and
+  revised engineering files are compared automatically. You can inspect
+  every changed dimension.” Give the comparison a quiet moment on screen.
+- **0:55–1:00:** “One request, one saved revision, updated across the tools.”
 
-## Failure recovery
+The times are a rehearsal budget, not measured end-to-end latency. Rehearse
+this exact request once before recording; verify all requested values, motor
+resolution in OpenRocket, unchanged ship inputs, and the correct `.ork`
+comparison. Narrate only what the actual result shows. In a narrow quadrant,
+use Kord's Changes list; drawing annotations can clip their after-values.
 
-A failed model request leaves the accepted design and history intact. Export
-and upload failures retain the proposal and expose retry controls. An upload
-that times out may have reached Kord, so a retry can create another public
-link. Export hashes prevent uploading changed or missing bytes. Shared links
-expire according to Kord's returned expiry; use the saved local comparison
-if a link has expired.
+## Fallback and restart
 
-## Reproduce the stage model evidence
+Prepare a saved real run and preload its Kord comparison before presenting.
+If the live result is not ready by about 0:35, say “Here is the result from
+our rehearsal” and show that saved result. Do not try a second model request
+inside the minute. Wait for sharing to finish before submitting another ask;
+network work can currently hold the workbench lock.
 
-The opt-in runner makes one model proposal and writes inputs, prompts, output,
-model/timing and computed checks. It performs no Kord upload. Use a fresh output
-directory so evidence is not overwritten:
+Create a separate deterministic fallback in advance:
 
 ```bash
-uv run --env-file /Users/w/Projects/rocinante/.env python scripts/stage_refit.py \
-  --run-live --model gpt-6-astra --out out/stage-refit-new
+bin/roci demo --fixture --out out/demo-minute-fixture
 ```
 
-The recorded probe is in `out/stage-refit-v2`; the independent UI request is in
-`out/demo-stage-v2`. A positive sub-second endurance delta from rounded fuel is
-recorded explicitly, not presented as exact mathematical equality.
+Fixture presets cover individual changes, not the complete one-shot prompt.
+Label them as fixtures. These paths are preparation commands, not claims that
+saved runs already exist in this checkout.
+
+Restart a prepared run with the same mode and `--out` directory. State is
+saved in `<out>/workbench.json`; torpedo files are in `<out>/torpedo/` and
+ship exports/reports in `<out>/exports/`. Check the saved comparison actually
+loads. Local links require the local Kord service; public shares expire
+according to their saved `expires_at`. A saved link is reused on restart.
+
+Model failures leave the accepted design intact. Export or upload failures
+can occur after automatic acceptance: inspect the propagation status and
+server logs, and switch to the prepared comparison for the presentation.
+Do not delete the run directory to recover. An upload retry can create an
+additional link if the first upload reached Kord. If OpenRocket becomes
+unresponsive, quit it cleanly and reopen the saved torpedo file.
+Resume from the saved workbench JSON; this project's partial `.ork` importer
+does not preserve motor or recovery settings.
+
+## Accurate narration
+
+- The demo writes real `.ork` designs and opens them in OpenRocket. This
+  project's OpenRocket and RocketPy simulation backends are stubs; no
+  automated flight, altitude, burn-time or stability improvement is proven.
+- The ship's mass and mission metrics are not coupled to this torpedo's
+  detailed geometry or motor. Do not narrate a ship-performance gain.
+- Torpedo-only edits share `.ork` files. The ship GLBs shown by Blender and
+  the local ship viewer are a separate output; they are not the torpedo diff.
+- The progress tracker reports propagation stages, not a continuous morph.
+- Kord is a separate, pre-existing product. Anonymous comparisons do not
+  create authenticated review verdicts or post rationale comments.
+- This is unaffiliated fan work using generated geometry. See README.md
+  for the before/during-event build boundary.

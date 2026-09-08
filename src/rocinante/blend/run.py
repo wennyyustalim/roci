@@ -101,7 +101,7 @@ def build_ship_mesh(spec: ShipSpec, out_path: str | Path, timeout: int = 240) ->
     return out_path
 
 
-def launch_live_ship(spec_path: str | Path, geometry: list[str] | None = None) -> subprocess.Popen:
+def launch_live_ship(spec_path: str | Path, geometry: list[str] | None = None) -> subprocess.Popen | None:
     """Open Blender's persistent, auto-refreshing Roci scene.
 
     ``spec_path`` is deliberately a file, rather than an IPC endpoint: it
@@ -109,6 +109,11 @@ def launch_live_ship(spec_path: str | Path, geometry: list[str] | None = None) -
     The Blender-side timer regenerates the mesh when its contents change.
     """
     path = Path(spec_path).resolve()
+    # Reuse the scene window when the web server is reloaded.
+    running = subprocess.run(["ps", "-axo", "command"], capture_output=True, text=True, check=False)
+    if any(str(LIVE_SHIP_SCRIPT) in line and str(path) in line and "--python" in line
+           and "Blender" in line for line in running.stdout.splitlines()):
+        return None
     log_file = path.with_name("blender-live.log").open("w")
     return subprocess.Popen(
         [blender_bin(), "--factory-startup", *(geometry or []),

@@ -1,172 +1,141 @@
 # Rocinante
 
-A spacecraft you can redesign and then fly.
+Redesign a torpedo with one request, open the revised engineering file in
+OpenRocket, and compare it with its previous version in Kord.
 
-Rocinante models the ship it is named for as a versioned engineering
-document. Change the ship — lengthen the drive cone, trade a torpedo tube for
-magazine volume — and you get two things back: a 3D diff showing exactly what
-moved, and the flight consequences of having moved it. Then you take the
-result out and fly it.
+The one-minute demo follows **intent → validated design → OpenRocket →
+Kord comparison**. Astra returns a complete `ShipSpec` containing a
+`RocketSpec` torpedo. Python validates the design, writes `.ork` files, and
+saves a revision. Valid revisions are accepted automatically, and the
+comparison is uploaded in the background.
 
 > Unaffiliated fan work. *The Expanse* belongs to its authors and to Alcon.
 > No trademarked assets are in this repository.
 
-This repo is a client. The version control platform it files revisions into is
-a separate, pre-existing product, reached over HTTP.
-
-## Why
-
-An engineering file is a binary blob. Version control sees that it changed and
-can tell you nothing else, so the loop that actually matters — propose,
-simulate, review, revise — happens by hand, in email, with screenshots.
-
-Rocinante closes that loop and attaches consequences to it. A change is not a
-diff of bytes; it is *the drive cone grew 4 m, Δv went up 87 km/s, and max
-acceleration dropped 0.7 g* — with the changed section glowing red against a
-ghost of the hull it replaced.
+Kord is a separate, pre-existing product reached over HTTP. The current
+presentation focuses on torpedo geometry and motor configuration. The repo
+also contains ship refit and computed mission tooling; automated torpedo
+flight simulation remains unimplemented.
 
 ## How it works
 
-```
-ShipSpec ──▶ Blender ──▶ .glb ──▶ 3D diff ──▶ version + review
-    │                                              │
-    ├──▶ derived: Δv, mass, accel ─────────────────┘
-    │
-    └──▶ flight sim ──▶ brachistochrone, combat, crew
-             │
-             └──▶ torpedoes: .ork ──▶ OpenRocket
+```text
+Request → Astra → validated ShipSpec → saved revision
+                            │
+                            ├─ torpedo → .ork → OpenRocket
+                            │              └─ before/after .ork → Kord comparison
+                            ├─ ship geometry → Blender → .glb → ship viewer
+                            └─ ship inputs → computed mass, Δv and acceleration
 ```
 
-The Roci flies Newtonian — constant thrust, flip at the midpoint, decelerate
-in. Its **torpedoes** are the model rockets, and those go through OpenRocket
-for real thrust curves and burn times.
+Torpedo-only edits compare the torpedo files in Kord. Ship geometry edits
+use the ship GLB comparison path. The torpedo's detailed dimensions and motor
+are not coupled to ship mass or mission performance. A longer drive cone
+alone changes geometry without changing thrust or exhaust velocity.
 
 | Piece | What it does |
 |---|---|
-| `ship.py` | `ShipSpec` and everything derived from it. The structure Astra emits. |
-| `spec.py` | `RocketSpec` — the torpedo. |
-| `flight/` | Brachistochrone transfers: burn, flip, decelerate. |
-| `agent/refit.py` | One sentence of intent → one structured-output call → one revision. |
-| `blend/` | Blender builds geometry and exports glTF. Not a renderer for the loop. |
-| `diff.py` | Structured design difference, and which 3D parts it touched. |
-| `ork/` | Spec ⇄ OpenRocket `.ork`, for the torpedoes. |
-| `sim/` | Torpedo simulation. OpenRocket via JPype, RocketPy as the fallback. |
-| `kord/` | The Kord integration: 3D diff links, versions, review sessions. |
-| `web/` | The interactive viewer: system map, combat, crew, and the diff. |
-
-Blender is the mesh generator, not the viewer. It does the geometry; the
-browser does the interaction. Rendered pixels are for the hero shot.
+| `ship.py` | Validated ship inputs and computed engineering quantities. |
+| `spec.py` | Torpedo design schema: nose, body, fins, motor and recovery. |
+| `agent/refit.py` | A structured model proposal from a request. |
+| `workbench.py` | Persistent revisions, diffs, demo acceptance and tool handoff. |
+| `ork/` | OpenRocket `.ork` export and partial geometry import. |
+| `blend/` | Parametric mesh generation and GLB export. |
+| `diff.py` | Structured input changes and affected ship parts. |
+| `flight/` | Closed-form constant-acceleration transfer calculations. |
+| `sim/` | OpenRocket and RocketPy backend stubs. |
+| `kord/` | HTTP client for comparisons and separate review APIs. |
+| `web/` | Ship scene, torpedo workshop, revision details and propagation status. |
 
 ## Setup
 
-For the end-to-end skeleton, Python is enough:
+Install Python 3.11+, `uv`, Blender, and the OpenRocket desktop application.
+The full presentation uses macOS window placement. Then:
 
 ```bash
 uv sync --extra dev
-ln -s "$PWD/bin/roci" ~/.local/bin/roci   # once; or use bin/roci directly
-roci demo
+cp .env.example .env   # first setup only; preserve an existing .env
+# Set OPENAI_API_KEY and the intended KORD_API_BASE in .env.
+bin/roci demo --live --out out/demo-minute
 ```
 
-`roci demo` is the whole setup. It loads `.env`, serves the torpedo bay UI,
-and tiles four windows into screen quadrants:
+`bin/roci` loads `.env` and runs in the project environment. Optionally
+symlink it onto your PATH as `roci`. A bare installed entry point does not
+load `.env`; use `uv run --env-file .env rocinante demo` when bypassing the
+wrapper. `ROCINANTE_MODEL` defaults to `gpt-6-astra`. `--live` requires a key;
+omitting it selects live mode when a key is present and fixtures otherwise.
 
-```
+The demo serves port 3001 and opens four windows:
+
+```text
 web UI   | OpenRocket
 ---------+-----------
 Blender  | Kord
 ```
 
-Every ask goes to Astra and becomes the ship: Blender rebuilds the hull,
-OpenRocket reopens the torpedo when it changed, and the comparison uploads
-to Kord in the background and appears in the Kord window. Live model
-proposals are the default when `OPENAI_API_KEY` is set; pass `--fixture`
-for the deterministic presets. Each window has a `--no-*` flag, and
-`--no-layout` leaves window placement alone.
+A torpedo request updates the design file in OpenRocket and automatically
+shares the previous/revised `.ork` pair with Kord. The Kord browser follows
+the saved comparison link. Select the target torpedo first in builds that
+expose individual torpedo selection. Use the prompt in [DEMO.md](DEMO.md)
+for the one-minute presentation.
 
-The Blender window watches the current proposal and regenerates the Roci in
-place whenever you propose a change (or restores the accepted ship when you
-reject one). Choose a fixture refit, inspect the ship comparison and computed
-consequences, then approve or reject. Repeat: the next proposal starts from
-the last approved design. History survives refreshes and server restarts in
-`out/workbench/workbench.json`. Use `--out out/another-run` for a fresh loop.
-The 3D viewer needs access to jsDelivr; review and metrics remain usable if
-its modules fail to load. No Blender or API key is needed for fixture mode.
+The Kord destination is `--kord`, then `KORD_API_BASE`, then
+`https://work.withkord.com`. When using local Kord, start its supporting
+services and `pnpm dev` in that checkout first; this command does not start
+Kord. Anonymous comparison sharing needs no Kord login. It does not create
+an authenticated review verdict or post a rationale comment.
 
-For free-text model proposals, set `OPENAI_API_KEY` and optionally
-`ROCINANTE_MODEL` in `.env`, then launch with:
+Set `BLENDER_BIN` if Blender is installed elsewhere. The viewer loads
+Three.js from jsDelivr. Tiling needs Automation access to Chrome and System
+Events. `--no-layout`, `--no-chrome`, `--no-blender`, `--no-openrocket`, and
+`--no-share` control the presentation. `--no-blender` disables the desktop
+window; automatic mesh export still requires Blender.
 
-```bash
-uv run --env-file .env rocinante demo --live --port 3001 --out out/demo-live
-```
-
-Comparisons go to the Kord that `KORD_API_BASE` names; add
-`--kord https://work.withkord.com` to use the public one instead.
-
-The explicit `--env-file` loads local configuration; ordinary launches do not.
-Live mode fails early if the key is missing. Real `gpt-6-astra` structured proposals have been verified end to end with
-computed torpedo and armor consequences. The configured model is shown in
-the UI and saved with each revision; fixture tests do not exercise the API. Local decisions do
-not approve Kord sessions. [DEMO.md](DEMO.md) contains the complete rehearsal,
-including rejection, next-parent verification and restart recovery.
-
-For a proposal, **Export comparison** regenerates both GLBs through Blender
-and loads the real pair into the local viewer, with a ghosted parent and
-affected-part highlights. Downloads include both GLBs and a computed
-comparison report. **Share with Kord**
-uploads that exact pair and saves a public comparison link on the revision.
-The destination is shown before sharing and follows `KORD_API_BASE`. Files
-are saved under `out/workbench/exports/vNNNN/`; failures preserve the proposal
-and expose an explicit retry. Sharing does not create an authenticated review
-session or post a comment. The CLI `ship-mesh --spec <file>` and `share`
-commands remain available too.
-
-For Blender exports and the torpedo tooling:
+For deterministic rehearsal without a model key:
 
 ```bash
-brew install --cask blender temurin
-
-mkdir -p vendor
-curl -L -o vendor/OpenRocket-23.09.jar \
-  https://github.com/openrocket/openrocket/releases/download/release-23.09/OpenRocket-23.09.jar
-
-uv venv && source .venv/bin/activate
-uv pip install -e '.[openrocket,rocketpy,dev]'
-
-cp .env.example .env
-rocinante doctor
+bin/roci demo --fixture --out out/demo-minute-fixture
 ```
 
-## Use
+Fixtures are labeled presets, not model responses. Use a fresh output
+directory for each baseline rehearsal; reuse the directory to resume its
+saved history. Default state lives in `out/workbench/workbench.json`.
+Generated torpedo files live under `<out>/torpedo/`, with ship exports and
+comparison reports under `<out>/exports/`. Model failures preserve the
+accepted design. Export/share failures may follow automatic acceptance;
+inspect the propagation status and use a prepared comparison for recovery.
+
+[DEMO.md](DEMO.md) contains the one-shot request, sixty-second script,
+expected baseline changes, and fallback preparation. The combined request
+still requires a timed live rehearsal.
+
+## Other tooling
 
 ```bash
-rocinante ship                            # the baseline Roci, and what it implies
-rocinante burn Tycho Ceres --accel 0.333  # solve a constant-thrust transfer
-rocinante ship-mesh -o out/roci.glb       # regenerate the hull from the spec
-rocinante refit "eight more torpedoes"    # the whole loop: ask -> revision
-rocinante share a.glb b.glb               # a public Kord 3D diff link
-
-rocinante sample                          # a known-good torpedo
-rocinante simulate out/sample.ork         # fly it through OpenRocket
+uv run rocinante ship                         # baseline ship calculations
+uv run rocinante burn Tycho Ceres --accel 0.333 # fixed-acceleration transfer
+uv run rocinante ship-mesh -o out/roci.glb      # generate the ship mesh
+uv run rocinante sample                       # write a sample torpedo
+uv run --env-file .env rocinante share a.glb b.glb
 ```
 
-`rocinante refit` is the project in one command: it asks GPT-6 Astra for a
-revision, regenerates the geometry, computes the consequences, and hands back
-a live Kord diff of the two hulls.
+The separate `refit` command supports ship proposals and GLB comparisons.
+It is not the one-minute torpedo script. `simulate` cannot provide real
+flight results while the backends remain stubs. Installing optional
+`openrocket` or `rocketpy` dependencies does not implement those backends.
+The local `.ork` reader imports geometry but currently defaults motor and
+recovery settings; use the saved JSON spec to preserve a complete design.
 
-`scripts/fake_run.py` writes a synthetic run with hand-authored numbers, so
-the viewer can be built and demoed before the systems behind it exist:
-
-```bash
-python scripts/fake_run.py --out out && rocinante viewer
-```
+`scripts/fake_run.py` produces explicitly synthetic flight data for the
+standalone viewer; its numbers are hand-authored. Current ship endurance is
+a conservative initial-wet-mass estimate. Tank/magazine packaging,
+variable-mass mission solving, and combat simulation are not demonstrated.
 
 ## What was built when
 
 This project was started the evening before the GPT-6 Astra hackathon and
-continued during it. This repository opens with a single commit, so the
-boundary is stated here rather than read from history. It is drawn honestly
-and deliberately — judges should be able to tell exactly what is ours from
-the event.
+continued during it. The build boundary is recorded here so judges can distinguish prior work
+from additions made during the event.
 
 **Before the event**, on the evening of 7 September: the Blender bridge with
 its auto-framed camera, the model-rocket geometry that became the torpedoes
@@ -190,19 +159,19 @@ rendering (`web/`).
 - The `ship`, `ship-mesh`, `ship-hero`, `burn`, `refit` and `share` commands.
 - `workbench.py`, the `demo` command, `web/loop.*`, `web/primitives.js`, and
   `tests/test_workbench.py` — the persistent local proposal/review skeleton,
-  labeled fixtures, primitive comparison and computed ship/mission panels.
+  labeled fixtures, automatic demo acceptance and sharing, OpenRocket file
+  handoff, torpedo editing, and computed ship/mission panels.
 
 **Kord itself is a separate, pre-existing product**, reached over HTTP. No
-part of this project required a change to it — see [PLAN.md](PLAN.md) for the
-three integration paths and why the anonymous diff-share endpoint is the one
-the demo stands on.
+part of this project required a change to it — see [DEMO.md](DEMO.md) for the current
+anonymous comparison workflow. Authenticated review remains separate scope.
 
 Still stubbed: both torpedo simulator backends.
 
 ## Tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ## License

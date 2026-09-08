@@ -9,7 +9,7 @@ export function createAssembly(models, camera, controls, container) {
   const smooth=t=>t*t*t*(t*(t*6-15)+10);
   const emit=()=>container.dispatchEvent(new CustomEvent("assemblychange",{detail:{
     expanded:target>0, moving:amount!==target, focus:focusIndex, suspended,
-    subject:focusObject?.userData.crew_name || (focusObject ? "Torpedo" : null),
+    subject:focusObject?.userData.crew_name || (focusObject?.userData.torpedo_id?.replace("torpedo_","Torpedo ") || null),
     decks:decks.map(d=>({index:d.index,name:d.name,crew:d.crew})),
   }}));
   function moveCamera(center,distance,direction=new THREE.Vector3(.8,.52,-1)) {
@@ -60,7 +60,9 @@ export function createAssembly(models, camera, controls, container) {
         if(!semantic) return;
         // A glTF semantic node may own multiple material meshes; move it once.
         if(object.parent?.userData.assembly_kind || object.parent?.userData.rocinante_part===name) return;
-        const box=new THREE.Box3().setFromObject(object), center=box.getCenter(new THREE.Vector3());
+        const box=new THREE.Box3();
+        object.traverse(child=>{if(child.isMesh) box.union(new THREE.Box3().setFromObject(child));});
+        const center=box.getCenter(new THREE.Vector3());
         const offset=data.assembly_offset ? new THREE.Vector3(...data.assembly_offset) :
           name.startsWith("drive_") ? new THREE.Vector3(0,name==="drive_bell" ? -13 : -8,0) :
           new THREE.Vector3(Math.sign(center.x || 1)*5,0,Math.sign(center.z || 1)*11);
@@ -75,8 +77,8 @@ export function createAssembly(models, camera, controls, container) {
           labels.push({object,element,local,index:data.deck_index,crew:false});
         } else if(data.assembly_kind==="torpedo") {
           const element=document.createElement("span"); element.className="part-label torpedo-label";
-          element.textContent="TORPEDO · ENLARGED"; layer.append(element);
-          labels.push({object,element,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+1,center.z)),torpedo:true});
+          element.textContent=data.torpedo_id?.replace("torpedo_","TORPEDO ") || "TORPEDO"; layer.append(element);
+          labels.push({object,element,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.06,center.z)),torpedo:true});
         } else if(data.assembly_kind==="crew") {
           const element=document.createElement("span"); element.className="crew-label"; element.textContent=data.crew_name;
           layer.append(element);
@@ -106,13 +108,14 @@ export function createAssembly(models, camera, controls, container) {
     const deck=decks.find(d=>d.index===index); if(!deck && !object) return;
     focusIndex=deck ? index : null; focusObject=object;
     // Stay at the current assembly positions; a click never snaps the geometry.
-    const box=new THREE.Box3().setFromObject(object || deck.object);
+    const box=new THREE.Box3();
+    (object || deck.object).traverse(child=>{if(child.isMesh) box.union(new THREE.Box3().setFromObject(child));});
     if(!object) for(const p of pieces) if(p.index===index) box.union(new THREE.Box3().setFromObject(p.object));
     const sphere=box.getBoundingSphere(new THREE.Sphere());
     const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
     target=amount; // Freeze a reveal in progress at the clicked object's position.
     applyVisibility();
-    moveCamera(sphere.center,Math.max(2,sphere.radius/Math.sin(fov/2)*1.18),new THREE.Vector3(.48,.8,-1)); emit();
+    moveCamera(sphere.center,Math.max(.18,sphere.radius/Math.sin(fov/2)*1.18),new THREE.Vector3(.48,.8,-1)); emit();
   }
   function pick(object) {
     const piece=pieces.find(p=>!p.ghost && (p.object===object || p.object.getObjectById(object.id)));
@@ -147,7 +150,7 @@ export function createAssembly(models, camera, controls, container) {
     const width=container.clientWidth,height=container.clientHeight;
     for(const l of labels) {
       const point=l.object.localToWorld(l.local.clone()).project(camera);
-      const visible=!suspended && (l.torpedo ? l.object.visible : amount>.94) && point.z<1 && point.z>-1 && Math.abs(point.x)<.94 && Math.abs(point.y)<.94 &&
+      const visible=!suspended && (l.torpedo ? l.object.visible && (focusObject===l.object || amount>.94) : amount>.94) && point.z<1 && point.z>-1 && Math.abs(point.x)<.94 && Math.abs(point.y)<.94 &&
         (l.torpedo ? focusIndex===null : l.crew ? focusIndex===l.index : focusIndex===null);
       l.element.hidden=!visible;
       if(visible) {l.element.style.left=`${(point.x*.5+.5)*width}px`;l.element.style.top=`${(-point.y*.5+.5)*height}px`;}

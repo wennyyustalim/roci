@@ -12,18 +12,22 @@
 
   <header class="hud">
     <div><h1 id="title">Rocinante</h1><p id="comparison"></p></div>
-    <div class="header-actions"><span id="mode" class="badge">Connecting</span>
-    <button id="presentation" class="quiet" type="button" aria-pressed="false">Presentation mode</button></div>
+    <div class="header-actions">
+      <button id="presentation" class="quiet" type="button" aria-pressed="false">Presentation mode</button>
+    </div>
   </header>
 
   <div id="deck-detail" hidden><span class="eyebrow" id="deck-number"></span><h2 id="deck-title"></h2><p id="deck-description"></p><span id="deck-crew"></span><button id="all-decks" class="quiet" type="button">← All decks</button></div>
   <aside class="panel">
     <form id="proposal">
-      <label for="ask" class="eyebrow">Torpedo workshop</label>
+      <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
+      <p id="workshop-scope" class="form-intro">Select a loaded torpedo to edit it.</p>
+      <button id="clear-selection" class="quiet" type="button" hidden>← All torpedoes</button>
       <select id="preset" aria-label="Fixture refit" hidden></select>
       <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>
       <div id="samples" class="chips" aria-label="Sample requests"></div>
       <button id="propose" type="submit">Ask Astra →</button>
+      <p id="selection-sync" role="status" aria-live="polite"></p>
     </form>
     <p id="status" role="status" aria-live="polite">Loading the ship…</p>
 

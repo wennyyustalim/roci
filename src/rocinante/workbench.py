@@ -16,7 +16,7 @@ from pathlib import Path
 
 from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
 from rocinante.blend import launch_live_ship
-from rocinante.demo import Bounds, open_openrocket
+from rocinante.demo import Bounds
 from rocinante.diff import diff_ships, ship_geometry_parts
 from rocinante.flight import plan
 from rocinante.handoff import export_baseline, export_pair, share_url, verified_pair

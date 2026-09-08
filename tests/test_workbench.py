@@ -335,14 +335,15 @@ def test_share_url_rejects_non_web_links():
 
 def test_torpedo_rides_with_the_ship_and_reaches_openrocket(tmp_path, monkeypatch):
     opened = []
-    monkeypatch.setattr("rocinante.workbench.open_openrocket", lambda path, name, bounds=None: opened.append((path, name)))
+    monkeypatch.setattr("rocinante.openrocket_live.show_in_openrocket",
+                        lambda path, selection, bounds=None: opened.append((path, json.loads(selection.read_text())["name"])) or {"status": "synced"})
     bench = Workbench(tmp_path, show_openrocket=True)
-    assert opened == [(tmp_path / "torpedo" / "v0000.ork", "Rocinante torpedo v0")]
+    assert opened == [(tmp_path / "torpedo" / "v0000.ork", "Rocinante general torpedo v0")]
     assert bench.state["iterations"][0]["torpedo"]["fins"] == ROCINANTE.torpedo.fins.count
 
     armor = bench.propose({"preset": "armor"})["iterations"][-1]
     assert armor["torpedo"]["changed"] is False
-    assert len(opened) == 1  # same torpedo: no new OpenRocket window
+    assert len(opened) == 2  # Updates use the bridge; no window is opened or closed.
     bench.decide({"index": 1, "verdict": "rejected"})
 
     fins = bench.propose({"preset": "fins"})["iterations"][-1]
@@ -350,12 +351,12 @@ def test_torpedo_rides_with_the_ship_and_reaches_openrocket(tmp_path, monkeypatc
     assert fins["changed_parts"] == ["torpedo"]
     assert fins["geometry_changed_parts"] == []
     assert fins["derived"] == bench.state["iterations"][0]["derived"]
-    assert opened[-1] == (tmp_path / "torpedo" / "v0002.ork", "Rocinante torpedo v2")
+    assert opened[-1] == (tmp_path / "torpedo" / "v0002.ork", "Rocinante general torpedo v2")
     from rocinante.ork import read_ork
     assert read_ork(opened[-1][0]).fins.sweep_m == pytest.approx(ROCINANTE.torpedo.fins.sweep_m + 0.01)
 
     bench.decide({"index": 2, "verdict": "rejected"})
-    assert opened[-1][1] == "Rocinante torpedo v0"  # back to the accepted torpedo
+    assert opened[-1][1] == "Rocinante general torpedo v0"  # back to the accepted torpedo
 
 
 def test_auto_export_gives_the_viewer_real_geometry_for_every_revision(tmp_path, fake_blender):
@@ -440,3 +441,76 @@ def test_demo_rejects_model_ship_edits_before_writing(tmp_path, monkeypatch, fie
     assert bench.path.read_bytes() == original_state
     assert bench.blender_spec_path.read_bytes() == original_blender
     assert len(bench.state["iterations"]) == 1
+
+
+def test_selected_round_refit_is_isolated_and_survives_reload(tmp_path):
+    bench = Workbench(tmp_path, auto_accept=True)
+    first = bench.select({"torpedo_id": "torpedo_01"})
+    assert first["selected_torpedo"] == "torpedo_01"
+    assert set(first["presets"]) == {"fins", "nose", "four_fins"}
+    changed = bench.propose({"preset": "nose", "torpedo_id": "torpedo_01"})["iterations"][-1]
+    assert changed["target_torpedo"] == "torpedo_01"
+    assert changed["spec"]["torpedo"] == ROCINANTE.torpedo.model_dump(mode="json")
+    assert changed["torpedoes"]["torpedo_01"]["nose"]["length_m"] == pytest.approx(.15)
+    assert bench.select({"torpedo_id": "torpedo_02"})["workshop_torpedo"]["length_m"] == pytest.approx(ROCINANTE.torpedo.total_length_m)
+    second = bench.propose({"preset": "four_fins"})["iterations"][-1]
+    assert second["torpedoes"]["torpedo_01"] == changed["torpedoes"]["torpedo_01"]
+    assert second["torpedoes"]["torpedo_02"]["fins"]["count"] == 4
+    reloaded = Workbench(tmp_path, auto_accept=True)
+    assert reloaded.snapshot()["selected_torpedo"] == "torpedo_02"
+    assert reloaded.snapshot()["workshop_torpedo"]["fins"] == 4
+    reloaded.select({"torpedo_id": None})
+    general = reloaded.propose({"preset": "armor", "torpedo_id": None})["iterations"][-1]
+    assert general["spec"]["hull"]["armor_cm"] == ROCINANTE.hull.armor_cm + 2
+    assert general["torpedoes"] == second["torpedoes"]
+
+
+def test_selection_validates_identity_without_creating_revisions(tmp_path):
+    bench = Workbench(tmp_path, auto_accept=True)
+    before = bench.path.read_bytes()
+    for target in ("torpedo_99", "../torpedo_01", 1, [], {}):
+        with pytest.raises(ValueError):
+            bench.select({"torpedo_id": target})
+        assert bench.path.read_bytes() == before
+    bench.select({"torpedo_id": "torpedo_01"})
+    assert len(bench.state["iterations"]) == 1
+    assert json.loads(bench.selection_path.read_text())["torpedo_id"] == "torpedo_01"
+    with pytest.raises(ValueError):
+        bench.propose({"preset": "armor"})
+    assert len(bench.state["iterations"]) == 1
+
+
+def test_selected_round_cannot_modify_ship_and_rejection_restores_round(tmp_path, monkeypatch):
+    bench = Workbench(tmp_path, live=True)
+    bench.select({"torpedo_id": "torpedo_01"})
+    def malicious(self, ship, ask):
+        result = ship.model_copy(deep=True)
+        result.hull.armor_cm += 2
+        result.torpedo.nose.length_m += .05
+        return result
+    monkeypatch.setattr("rocinante.workbench.RefitAgent.propose", malicious)
+    with pytest.raises(ValueError, match="static"):
+        bench.propose({"ask": "Refit this round"})
+    assert len(bench.state["iterations"]) == 1
+    bench.live = False
+    bench.propose({"preset": "nose"})
+    assert bench.snapshot()["workshop_torpedo"]["length_m"] == pytest.approx(.60)
+    bench.decide({"index": 1, "verdict": "rejected"})
+    assert bench.snapshot()["workshop_torpedo"]["length_m"] == pytest.approx(.55)
+
+
+def test_http_selection_and_general_scope(tmp_path):
+    server = make_server(Workbench(tmp_path, auto_accept=True), 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{server.server_port}") as client:
+            assert client.post("/api/select", json={"torpedo_id":"torpedo_02"}).json()["selected_torpedo"] == "torpedo_02"
+            refit = client.post("/api/propose", json={"preset":"nose", "torpedo_id":"torpedo_02"}).json()
+            assert refit["iterations"][-1]["target_torpedo"] == "torpedo_02"
+            assert client.post("/api/select", json={"torpedo_id":None}).json()["selected_torpedo"] is None
+            assert client.post("/api/select", json={"torpedo_id":"bogus"}).status_code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()

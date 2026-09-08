@@ -1,5 +1,6 @@
 const el=id=>document.getElementById(id);
-let state, scene, busy=false, pollTimer=null;
+const setOptionalText=(id,value)=>{const node=el(id);if(node) node.textContent=value;};
+let state, scene, busy=false, pollTimer=null, selectedTorpedo=null, selectionVersion=0, selectionSync=Promise.resolve(), syncTimer=null;
 const fmt=(n,d=1)=>n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 async function api(path,payload) {
   const response=await fetch(`/api/${path}`,payload ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)} : {});
@@ -32,14 +33,14 @@ function renderProgress(it,prev) {
   step("physics","done",moved ? `${moved} derived figure${moved===1 ? "" : "s"} moved` : "no performance change");
   const parts=it.geometry_changed_parts ?? [];
   step("blender","done",!state.blender ? "off" : parts.length ? `hull rebuilt · ${parts.join(", ")}` : "ship unchanged");
-  step("openrocket",it.torpedo?.changed ? "done" : "",!state.openrocket ? "off" : it.torpedo?.changed ? `reopened with torpedo v${it.index}` : "torpedo unchanged");
+  step("openrocket",it.torpedo?.changed ? "done" : "",!state.openrocket ? "off" : it.torpedo?.changed ? `updated torpedo v${it.index} in place` : "torpedo unchanged");
   const h=it.handoff ?? {}, kord={exporting:["busy","exporting geometry"],exported:[state.auto_share ? "busy" : "done",state.auto_share ? "uploading" : "exported, not shared"],sharing:["busy",`uploading the ${h.compared ?? "ship"} pair`],shared:["done",`${h.compared ?? "ship"} comparison ready`],share_failed:["error","upload failed"],export_failed:["error","export failed"]}[h.status] ?? ["","no export"];
   step("kord",...kord); el("kord-link").hidden=!h.share_url; if(h.share_url) el("kord-link").href=h.share_url;
 }
 
 function render() {
   const it=current(), prev=state.iterations[it.parent];
-  el("mode").textContent=state.mode==="fixture" ? "Fixture mode · no model call" : `Live · ${state.model}`;
+  renderScope();
   el("preset").hidden=state.mode!=="fixture"; el("ask").hidden=state.mode!=="live"; el("samples").hidden=state.mode!=="live";
   el("propose").textContent=state.mode==="live" ? "Ask Astra →" : "Run fixture →";
   el("propose").disabled=busy;
@@ -55,7 +56,7 @@ function render() {
   for(const [key,label,unit,digits] of [["torpedo_capacity","Torpedoes carried","",0],["dry_mass_t","Dry mass","t",1],["delta_v_km_s","Delta-v","km/s",1],["max_accel_g","Drive limit","g",2],["sustained_burn_hours","Cruise endurance","h",2]])
     metric("metrics",label,it.derived[key],unit,prev?.derived[key],digits);
   el("torpedo").replaceChildren();
-  const t=it.torpedo, pt=prev?.torpedo;
+  const t=state.workshop_torpedo || it.torpedo, pt=selectedTorpedo ? null : prev?.torpedo;
   if(t) {
     metric("torpedo","Length",t.length_m*100,"cm",pt ? pt.length_m*100 : null);
     metric("torpedo","Diameter",t.diameter_m*1000,"mm",pt ? pt.diameter_m*1000 : null,0);
@@ -74,12 +75,52 @@ async function propose() {
   busy=true; render();
   el("status").textContent=state.mode==="live" ? "Astra is designing the refit. Every number you see next is computed from the spec it returns." : "Applying the fixture preset…";
   try {
-    state=await api("propose",{preset:el("preset").value,ask:el("ask").value});
+    await selectionSync;
+    state=await api("propose",{preset:el("preset").value,ask:el("ask").value,torpedo_id:selectedTorpedo});
     const it=current();
     el("status").textContent=`v${it.index} is the ship now. Blender ${it.geometry_changed_parts?.length ? "rebuilt the hull" : "kept the hull"}; ${it.torpedo?.changed ? "OpenRocket has the new torpedo" : "the torpedo is unchanged"}.`;
   } catch(error) { el("status").textContent=error.message; }
   finally { busy=false; render(); }
 }
+
+function renderScope() {
+  const workshop=selectedTorpedo ? `${selectedTorpedo.replace("torpedo_","Torpedo ")} workshop` : "General workshop";
+  el("workshop-title").textContent=state.mode==="fixture" ? `${workshop} · Fixture` : `${workshop} · ${state.model}`;
+  setOptionalText("workshop-scope",selectedTorpedo ? "Refits apply only to this loaded torpedo." : "No torpedo selected · general refit");
+  if(el("clear-selection")) el("clear-selection").hidden=!selectedTorpedo;
+  el("ask").placeholder=selectedTorpedo ? "How should Astra refit this torpedo?" : "What should Astra change on the Roci?";
+  const oldPreset=el("preset").value;
+  el("preset").replaceChildren(...Object.entries(state.presets).map(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;return option;}));
+  if([...el("preset").options].some(o=>o.value===oldPreset)) el("preset").value=oldPreset;
+  el("samples").replaceChildren(...(state.sample_asks ?? []).map(ask=>{const b=document.createElement("button");b.type="button";b.textContent=ask;b.onclick=()=>{el("ask").value=ask;el("ask").focus();};return b;}));
+}
+function syncStatus(snapshot) {
+  setOptionalText("selection-sync",Object.entries(snapshot.integrations || {}).map(([app,result])=>
+    `${app==="blender" ? "Blender" : "OpenRocket"}: ${result.status==="synced" ? "in sync" : result.status==="error" ? result.message : "focusing…"}`).join(" · "));
+}
+function selectTorpedo(id) {
+  if(selectedTorpedo===id) return;
+  selectedTorpedo=id; const version=++selectionVersion;
+  renderScope(); el("propose").disabled=true; setOptionalText("selection-sync","Syncing selection…");
+  selectionSync=selectionSync.catch(()=>{}).then(async()=>{
+    const next=await api("select",{torpedo_id:id});
+    if(version!==selectionVersion) return;
+    state=next; render(); syncStatus(next);
+    clearTimeout(syncTimer);
+    let attempts=0;
+    const poll=async()=>{
+      if(version!==selectionVersion) return;
+      const status=await api("state"); if(version!==selectionVersion) return;
+      syncStatus(status);
+      if(Object.values(status.integrations || {}).some(s=>s.status==="pending") && ++attempts<30) syncTimer=setTimeout(()=>poll().catch(error=>{setOptionalText("selection-sync",error.message);}),500);
+    };
+    syncTimer=setTimeout(()=>poll().catch(error=>{setOptionalText("selection-sync",error.message);}),500);
+  }).catch(error=>{if(version===selectionVersion) {setOptionalText("selection-sync",`Selection could not sync: ${error.message}`);el("propose").disabled=true;} throw error;});
+  // Keep a rejected selection pending for submission, without an unhandled rejection.
+  selectionSync.catch(()=>{});
+}
+el("canvas").addEventListener("torpedoselect",event=>selectTorpedo(event.detail.torpedo_id));
+el("clear-selection")?.addEventListener("click",()=>scene?.reset());
 
 el("proposal").onsubmit=e=>{e.preventDefault();propose();};
 for(const id of ["ghost","highlight"]) el(id).onchange=renderScene;
@@ -112,12 +153,12 @@ el("presentation").onclick=()=>{
 el("rotate").onchange=()=>scene?.setRotate(el("rotate").checked);
 el("fit").onclick=()=>scene?.reset();
 try {
-  state=await api("state");
+  state=await api("state"); selectedTorpedo=state.selected_torpedo || null;
   for(const [value,label] of Object.entries(state.presets)) {const option=document.createElement("option");option.value=value;option.textContent=label;el("preset").append(option);}
   el("samples").replaceChildren(...(state.sample_asks ?? []).map(ask=> {const b=document.createElement("button");b.type="button";b.textContent=ask;b.onclick=()=>{el("ask").value=ask;el("ask").focus();};return b;}));
   if(!el("ask").value && state.sample_asks?.length) el("ask").value=state.sample_asks[0];
   el("status").textContent="Explore the ship";
   render();
 } catch(error) {el("status").textContent=`Unable to load the ship: ${error.message}`;el("propose").disabled=true;}
-try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));renderScene();}
+try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));await renderScene();if(selectedTorpedo) scene.selectTorpedo(selectedTorpedo,false);}
 catch(error) {el("scene-error").hidden=false;el("scene-error").textContent="3D view unavailable. Check WebGL and access to cdn.jsdelivr.net. The panel still works.";console.error(error);}

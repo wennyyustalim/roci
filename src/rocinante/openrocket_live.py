@@ -34,10 +34,13 @@ def bridge_jar(directory: Path, java: Path) -> Path:
     if jar.exists():
         return jar
     build.mkdir(parents=True, exist_ok=True)
+    agent_class = f"RocinanteAgent_{digest}"
+    agent_source = build / f"{agent_class}.java"
+    agent_source.write_text((sources / "RocinanteAgent.java").read_text().replace("class RocinanteAgent", f"class {agent_class}"))
     subprocess.run([str(java / "javac"), "--release", "11", "--add-modules", "jdk.attach", "-d", str(build),
-                    *map(str, sources.glob("*.java"))], check=True, capture_output=True, text=True)
+                    str(agent_source), str(sources / "RocinanteAttach.java")], check=True, capture_output=True, text=True)
     manifest = build / "MANIFEST.MF"
-    manifest.write_text("Manifest-Version: 1.0\nAgent-Class: RocinanteAgent\n\n")
+    manifest.write_text(f"Manifest-Version: 1.0\nAgent-Class: {agent_class}\n\n")
     subprocess.run([str(java / "jar"), "cfm", str(jar), str(manifest), "-C", str(build), "."],
                    check=True, capture_output=True)
     return jar
@@ -63,7 +66,8 @@ def show_in_openrocket(path: Path, selection: Path, bounds=None) -> dict:
     if len(pids) != 1:
         raise RuntimeError("Expected one OpenRocket session; no existing window was changed")
     command = json.loads(selection.read_text())
-    props = selection.with_name("openrocket-selection.properties")
+    jar = bridge_jar(selection.parent, java)
+    props = selection.with_name(f"openrocket-selection-{jar.parent.name}.properties")
     content = (f"request_id={command['request_id']}\n"
                f"file={base64.b64encode(str(path.resolve()).encode()).decode()}\n"
                f"digest={hashlib.sha256(path.read_bytes()).hexdigest()}\n"
@@ -73,7 +77,6 @@ def show_in_openrocket(path: Path, selection: Path, bounds=None) -> dict:
     temp.replace(props)
     key = (pids[0], str(props.resolve()))
     if key not in _attached:
-        jar = bridge_jar(selection.parent, java)
         # An initial startup may publish its JVM before the first frame exists.
         for attempt in range(20):
             result = subprocess.run([str(java / "java"), "--add-modules", "jdk.attach", "-cp", str(jar),

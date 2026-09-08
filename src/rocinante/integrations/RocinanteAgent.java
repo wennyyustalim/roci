@@ -18,8 +18,8 @@ public class RocinanteAgent {
 
     public static synchronized void agentmain(String path, Instrumentation inst) throws Exception {
         command = Paths.get(path);
-        for (Class<?> type : inst.getAllLoadedClasses()) {
-            if (type.getName().equals("info.openrocket.swing.gui.main.BasicFrame")) frameClass = type;
+        for (Frame frame : Frame.getFrames()) {
+            if (frame.getClass().getName().equals("info.openrocket.swing.gui.main.BasicFrame") && frame.isDisplayable()) frameClass = frame.getClass();
         }
         if (frameClass == null) throw new IllegalStateException("OpenRocket has no ready document window");
         if (watcher != null) return;
@@ -40,6 +40,8 @@ public class RocinanteAgent {
                         } catch (Exception error) {
                             Throwable cause = error;
                             while (cause.getCause() != null) cause = cause.getCause();
+                            java.io.StringWriter trace = new java.io.StringWriter(); error.printStackTrace(new java.io.PrintWriter(trace));
+                            Files.writeString(current.resolveSibling("openrocket-bridge-error.log"), trace.toString());
                             status(current, request, "error", cause.toString());
                         }
                         previous = request;

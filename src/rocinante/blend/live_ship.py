@@ -1,86 +1,153 @@
-"""Runs inside the visible Blender window used by ``rocinante demo``.
-
-The host writes the currently selected ShipSpec to a JSON file.  This script
-polls that small file from Blender's timer API and replaces the generated
-scene when it changes.  The geometry functions live in build_ship.py so the
-interactive scene and the exported GLB can never drift apart.
-"""
-
+"""Persistent Blender scene and selection bridge. Runs inside the visible app."""
 from __future__ import annotations
 
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 import bpy
+from mathutils import Vector
 
-# Blender does not add the executing script's directory to sys.path. Add it
-# explicitly so this interactive wrapper uses the same generator as GLB export.
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from build_ship import (
-    add_lights,
-    apply_materials,
-    build_decks,
-    build_drive,
-    build_hull,
-    build_pdcs,
-    build_tubes,
-    frame_camera,
-    frame_viewports,
-)
+from build_ship import (add_lights, apply_materials, build_decks, build_drive, build_hull,
+                        build_pdcs, build_tubes, frame_camera, frame_viewports)
+from torpedoes import build_loaded_torpedoes
 
 SPEC_PATH = Path(sys.argv[sys.argv.index("--") + 1])
-last_digest: str | None = None
+SELECTION_PATH = SPEC_PATH.with_name("selection.json")
+last_digest = None
+last_rounds = None
+last_request = None
+animation = None
+ship_span, ship_center = 50, (0, 0, 0)
 
 
 def clear_live_scene():
-    """Clear generated data without resetting the interactive UI context."""
+    """Remove only generated scene data; retain the application and its viewports."""
     for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
+        if obj.get("rocinante_part") or obj.name in {"camera", "focus", "key", "rim"}:
+            bpy.data.objects.remove(obj, do_unlink=True)
     for mesh in list(bpy.data.meshes):
-        bpy.data.meshes.remove(mesh)
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+
+
+def acknowledge(command, status, message):
+    path = SPEC_PATH.with_name("blender-selection-status.json")
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps({"request_id": command["request_id"], "status": status, "message": message}))
+    temp.replace(path)
+
+
+def focus(command):
+    global animation
+    ident = command.get("torpedo_id")
+    objects = [o for o in bpy.context.scene.objects if o.get("torpedo_id") == ident] if ident else []
+    if ident and not objects:
+        acknowledge(command, "error", "Selected torpedo is not present in the Blender scene")
+        return
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    if objects:
+        for obj in objects:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = objects[0]
+        points = [obj.matrix_world @ Vector(c) for obj in objects for c in obj.bound_box]
+        lo = Vector(tuple(min(p[i] for p in points) for i in range(3)))
+        hi = Vector(tuple(max(p[i] for p in points) for i in range(3)))
+        center, distance = (lo + hi)/2, (hi-lo).length*1.8
+    else:
+        center, distance = Vector(ship_center), ship_span*1.65
+    views = []
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type == "VIEW_3D":
+                space = area.spaces.active
+                space.clip_start = .001
+                region = space.region_3d
+                direction = Vector((.7, 1 if center.y >= 0 else -1, .5)).to_track_quat("Z", "Y")
+                views.append((area, region, region.view_location.copy(), region.view_distance, region.view_rotation.copy(), direction))
+    animation = (time.monotonic(), center, max(.12, distance), views, command)
+
+
+def animate():
+    global animation
+    if animation:
+        started, center, distance, views, command = animation
+        t = min(1, (time.monotonic()-started)/1.1)
+        eased = t*t*t*(t*(6*t-15)+10)
+        for area, region, origin, zoom, rotation, direction in views:
+            region.view_location = origin.lerp(center, eased)
+            region.view_distance = zoom+(distance-zoom)*eased
+            region.view_rotation = rotation.slerp(direction, eased)
+            area.tag_redraw()
+        if t == 1:
+            acknowledge(command, "synced", "Focused selected torpedo" if command.get("torpedo_id") else "Showing the Roci")
+            animation = None
+    return .02
 
 
 def refresh():
-    global last_digest
+    global last_digest, last_rounds, last_request, ship_span, ship_center
     try:
         raw = SPEC_PATH.read_bytes()
-        digest = hashlib.sha256(raw).hexdigest()
-        if digest == last_digest:
-            return 1.0
         spec = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"Rocinante live scene waiting for a valid spec: {exc}")
-        return 1.0
+        try:
+            command = json.loads(SELECTION_PATH.read_text())
+        except FileNotFoundError:
+            command = {"request_id": 0, "torpedo_id": None, "torpedoes": {}}
+        digest = hashlib.sha256(raw).hexdigest()
+        rounds = json.dumps([spec["torpedo"], command.get("torpedoes", {})], sort_keys=True)
+        rebuilt = digest != last_digest
+        if rebuilt:
+            clear_live_scene()
+            tubes = build_tubes(spec)
+            objects = build_hull(spec) + build_drive(spec) + build_pdcs(spec) + tubes + build_decks(spec)
+            apply_materials(objects)
+            bpy.context.view_layer.update()
+            ship_span, ship_center = frame_camera(objects)
+            add_lights(ship_span, ship_center)
+            if last_digest is None:
+                frame_viewports(ship_span, ship_center)
+            last_digest = digest
+            bpy.context.scene["rocinante_spec_path"] = str(SPEC_PATH)
+        if rebuilt or rounds != last_rounds:
+            for obj in list(bpy.data.objects):
+                if obj.get("torpedo_id"):
+                    bpy.data.objects.remove(obj, do_unlink=True)
+            tubes = [o for o in bpy.context.scene.objects if o.get("rocinante_part", "").startswith("tube_")]
+            build_loaded_torpedoes(spec, tubes, command.get("torpedoes"))
+            bpy.context.view_layer.update()
+            last_rounds = rounds
+        if rebuilt or command["request_id"] != last_request:
+            focus(command)
+            last_request = command["request_id"]
+    except Exception as exc:
+        print(f"Rocinante live scene: {exc}")
+        if 'command' in locals():
+            acknowledge(command, "error", str(exc))
+    return .25
 
-    clear_live_scene()
-    objects = (
-        build_hull(spec)
-        + build_drive(spec)
-        + build_pdcs(spec)
-        + build_tubes(spec)
-        + build_decks(spec)
-    )
-    apply_materials(objects)
-    bpy.context.view_layer.update()
-    span, center = frame_camera(objects)
-    add_lights(span, center)
-    frame_viewports(span, center)
-    bpy.context.scene["rocinante_spec_path"] = str(SPEC_PATH)
-    bpy.context.scene["rocinante_parts"] = len(objects)
-    last_digest = digest
-    print(f"Rocinante live scene refreshed: {len(objects)} parts")
-    return 1.0
 
-
-# --factory-startup restores the splash screen, and it would open on top of the
-# ship in the demo's Blender quadrant. This script runs before the first
-# redraw, so clearing the preference stops it being drawn at all.
+# Upgrade older live scripts too, whose timers predate the named registry.
+import gc
+import types
+for callback in gc.get_objects():
+    if (isinstance(callback, types.FunctionType) and callback.__name__ == "refresh"
+            and callback.__code__.co_filename == str(Path(__file__).resolve())
+            and bpy.app.timers.is_registered(callback)):
+        bpy.app.timers.unregister(callback)
+# Reloading this script replaces the bridge timers in the existing app.
+for callback in bpy.app.driver_namespace.get("rocinante_timers", []):
+    if bpy.app.timers.is_registered(callback):
+        bpy.app.timers.unregister(callback)
 bpy.context.preferences.view.show_splash = False
-
 refresh()
-bpy.app.timers.register(refresh, first_interval=1.0, persistent=True)
+bpy.app.timers.register(refresh, first_interval=.25, persistent=True)
+bpy.app.timers.register(animate, first_interval=.02, persistent=True)
+bpy.app.driver_namespace["rocinante_timers"] = [refresh, animate]
