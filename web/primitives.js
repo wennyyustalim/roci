@@ -297,7 +297,7 @@ function ringGate() {
   radialInstances(group,new THREE.BoxGeometry(30,7,31),rib,96,520);
   radialInstances(group,new THREE.BoxGeometry(3,19,5),glow,192,500);
   radialInstances(group,new THREE.BoxGeometry(44,21,39),shell,12,520);
-  // A transparent edge field leaves distant stars visible through the aperture.
+  // Flowing blue plasma fills the aperture, with small gleams along the rim.
   const field=new THREE.ShaderMaterial({
     uniforms:{time:{value:0}}, transparent:true, depthWrite:false, side:THREE.DoubleSide,
     blending:THREE.AdditiveBlending,
@@ -310,14 +310,36 @@ function ringGate() {
       }`,
     fragmentShader:`varying vec2 local; uniform float time;
       #include <logdepthbuf_pars_fragment>
+      float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+      float noise(vec2 p) {
+        vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),
+          mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0)),f.x),f.y);
+      }
+      float cloud(vec2 p) {
+        return noise(p)*.57+noise(p*2.03)*.28+noise(p*4.07)*.15;
+      }
       void main() {
         #include <logdepthbuf_fragment>
         float r=length(local), angle=atan(local.y,local.x);
+        float aperture=1.0-smoothstep(.878,.899,r);
+        float turn=r*2.8-time*.055;
+        vec2 flow=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*local;
+        vec2 drift=vec2(time*.035,-time*.024);
+        float mist=cloud(flow*4.5+drift);
+        float wisps=cloud(flow*8.0+vec2(mist*2.6)-drift);
+        float ribbons=pow(.5+.5*sin(r*24.0-mist*9.0+wisps*4.0-time*.22),3.0);
+        float breath=.94+.06*sin(time*.65);
         float rim=exp(-abs(r-.896)*95.0);
-        float halo=exp(-abs(r-.896)*20.0)*.14;
-        float ripple=sin(r*95.0-time*.7+sin(angle*7.0)*.8)*.5+.5;
-        float inner=smoothstep(.5,.89,r)*(1.0-smoothstep(.89,.92,r));
-        gl_FragColor=vec4(.21,.68,.85,(rim*.36+halo+inner*ripple*.035));
+        float halo=exp(-abs(r-.896)*24.0);
+        float gleam=pow(.5+.5*sin(angle*83.0+sin(angle*19.0)*3.0-time*1.6),12.0);
+        vec3 plasma=mix(vec3(.008,.045,.12),vec3(.015,.32,.43),
+          clamp(mist*.65+ribbons*.48,0.0,1.0))*breath;
+        vec3 light=plasma*aperture+vec3(.08,.55,.85)*halo*.13
+          +vec3(.24,.78,1.0)*rim*(.42+gleam*.95);
+        gl_FragColor=vec4(light,max(aperture*.88,halo*.7));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
   mesh(group,new THREE.PlaneGeometry(1120,1120),field);
