@@ -19,13 +19,14 @@ def test_open_openrocket_reports_absence_instead_of_raising(monkeypatch, tmp_pat
     assert demo.open_openrocket(tmp_path / "t.ork", "Torpedo v1") is None
 
 
-def test_open_openrocket_closes_our_previous_window_first(monkeypatch, tmp_path):
-    calls = []
+def test_open_openrocket_opens_first_then_retires_our_previous_window(monkeypatch, tmp_path):
+    calls, scheduled = [], []
     monkeypatch.setattr(demo, "_mac_app_available", lambda name: True)
     monkeypatch.setattr(demo.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    monkeypatch.setattr(demo, "_close_stale_windows_later", lambda keep: scheduled.append(keep))
     assert demo.open_openrocket(tmp_path / "v0002.ork", "Roci torpedo v2") == "OpenRocket"
-    assert calls[0][0] == "osascript" and "Roci torpedo v2 (v0002.ork)" in calls[0][2]
-    assert calls[1][:3] == ["open", "-a", "OpenRocket"]
+    assert calls == [["open", "-a", "OpenRocket", str((tmp_path / "v0002.ork").resolve())]]
+    assert scheduled == ["Roci torpedo v2 (v0002.ork)"]
 
 
 def test_ork_uses_openrocket_position_and_motor_mount_elements(tmp_path):

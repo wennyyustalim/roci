@@ -13,6 +13,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -68,9 +70,11 @@ def open_openrocket(path: Path, rocket_name: str | None = None) -> str | None:
     """
     resolved = Path(path).resolve()
     if _mac_app_available(OPENROCKET_APP):
-        if rocket_name:
-            close_stale_openrocket_windows(openrocket_window_title(rocket_name, resolved))
         subprocess.run(["open", "-a", OPENROCKET_APP, str(resolved)], check=False)
+        if rocket_name:
+            # Close the old window only after the new one exists: closing the
+            # last document window makes OpenRocket quit on us.
+            _close_stale_windows_later(openrocket_window_title(rocket_name, resolved))
         return OPENROCKET_APP
     if shutil.which("openrocket"):
         subprocess.Popen(
@@ -78,6 +82,35 @@ def open_openrocket(path: Path, rocket_name: str | None = None) -> str | None:
         )
         return "openrocket"
     return None
+
+
+_WINDOW_TITLES = '''
+tell application "System Events"
+    if not (exists process "{app}") then return ""
+    tell process "{app}" to return name of windows as string
+end tell
+'''
+
+
+def _close_stale_windows_later(keep_title: str, wait_s: float = 45.0) -> threading.Thread:
+    def worker() -> None:
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            try:
+                titles = subprocess.run(
+                    ["osascript", "-e", _WINDOW_TITLES.format(app=OPENROCKET_APP)],
+                    capture_output=True, text=True, timeout=10, check=False,
+                ).stdout
+            except (OSError, subprocess.SubprocessError):
+                return
+            if keep_title in titles:
+                close_stale_openrocket_windows(keep_title)
+                return
+            time.sleep(1.0)
+
+    thread = threading.Thread(target=worker, name="openrocket-windows", daemon=True)
+    thread.start()
+    return thread
 
 
 def close_stale_openrocket_windows(keep_title: str) -> None:
