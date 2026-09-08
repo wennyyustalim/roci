@@ -250,6 +250,7 @@ def demo(
     out: Path = typer.Option(Path("out/workbench"), "--out", "-o"),
     port: int = typer.Option(3001, "--port", "-p"),
     live: bool = typer.Option(False, "--live", help="Use the configured model instead of fixtures."),
+    blender: bool = typer.Option(True, "--blender/--no-blender", help="Show the live Roci in Blender."),
 ) -> None:
     """Run the local, interactive ship refit and human review loop."""
     from rocinante.agent.refit import model_name
@@ -260,11 +261,13 @@ def demo(
             "Live mode needs OPENAI_API_KEY. Export it or launch with "
             "uv run --env-file .env rocinante demo --live."
         )
-    server = make_server(Workbench(out, live=live), port)
+    server = make_server(Workbench(out, live=live, show_blender=blender), port)
     console.print(f"Workbench: http://127.0.0.1:{port}/ ({'live model' if live else 'fixtures'})")
     if live:
         console.print(f"Model: {model_name()}")
     console.print(f"Saved state: {out / 'workbench.json'}")
+    if blender:
+        console.print(f"Blender: live scene watching {out / 'blender-current.json'}")
     console.print(f"Kord comparison destination: {KordClient().base_url}")
     try:
         server.serve_forever()

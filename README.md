@@ -67,11 +67,14 @@ uv run rocinante demo --port 3001
 # Open http://127.0.0.1:3001/
 ```
 
-Choose a fixture refit, inspect the ship comparison and computed
+This also opens one visible Blender window. It watches the current proposal
+and regenerates the Roci in place whenever you propose a change (or restores
+the accepted ship when you reject one). Choose a fixture refit, inspect the ship comparison and computed
 consequences, then approve or reject. Repeat: the next proposal starts from
 the last approved design. History survives refreshes and server restarts in
 `out/workbench/workbench.json`. Use `--out out/another-run` for a fresh loop.
-The 3D viewer needs access to jsDelivr; review and metrics remain usable if
+Use `--no-blender` when running the local workbench without its live Blender
+window. The 3D viewer needs access to jsDelivr; review and metrics remain usable if
 its modules fail to load. No Blender or API key is needed for fixture mode.
 
 For free-text model proposals, set `OPENAI_API_KEY` and optionally

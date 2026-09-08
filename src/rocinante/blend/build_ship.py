@@ -259,4 +259,5 @@ def main():
         print(f"rendered {render['path']}")
 
 
-main()
+if __name__ == "__main__":
+    main()

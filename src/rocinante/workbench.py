@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
+from rocinante.blend import launch_live_ship
 from rocinante.diff import diff_ships
 from rocinante.flight import plan
 from rocinante.handoff import export_pair, share_url, verified_pair
@@ -56,10 +57,12 @@ def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
 
 
 class Workbench:
-    def __init__(self, out: Path, live: bool = False):
+    def __init__(self, out: Path, live: bool = False, show_blender: bool = False):
         self.out = out
         self.live = live
+        self.show_blender = show_blender
         self.path = out / "workbench.json"
+        self.blender_spec_path = out / "blender-current.json"
         out.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
@@ -75,6 +78,18 @@ class Workbench:
         else:
             self.state = {"accepted": 0, "iterations": [self.entry(ROCINANTE, 0, "approved")]}
             self.save()
+        self.refresh_blender()
+        if self.show_blender:
+            launch_live_ship(self.blender_spec_path)
+
+    def refresh_blender(self):
+        """Publish the design currently under review to the visible Blender scene."""
+        current = self.state["iterations"][-1]
+        if current["status"] == "rejected":
+            current = self.state["iterations"][self.state["accepted"]]
+        temporary = self.blender_spec_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(current["spec"], indent=2))
+        temporary.replace(self.blender_spec_path)
 
     @staticmethod
     def entry(ship: ShipSpec, index: int, status: str, result: RefitResult | None = None):
@@ -175,6 +190,7 @@ class Workbench:
             entry["model"] = model_name()
         self.state["iterations"].append(entry)
         self.save()
+        self.refresh_blender()
         return self.snapshot()
 
     def decide(self, payload: dict):
@@ -188,6 +204,8 @@ class Workbench:
         if verdict == "approved":
             self.state["accepted"] = current["index"]
         self.save()
+        if verdict == "rejected":
+            self.refresh_blender()
         return self.snapshot()
 
 

@@ -48,6 +48,18 @@ def test_bad_requests_leave_design_unchanged(tmp_path):
     assert bench.state["iterations"][-1]["status"] == "pending"
 
 
+def test_blender_scene_spec_tracks_pending_and_restores_accepted_ship(tmp_path):
+    bench = Workbench(tmp_path)
+    baseline = json.loads((tmp_path / "blender-current.json").read_text())
+    assert baseline == ROCINANTE.model_dump(mode="json")
+
+    pending = bench.propose({"preset": "drive"})["iterations"][-1]
+    assert json.loads((tmp_path / "blender-current.json").read_text()) == pending["spec"]
+
+    bench.decide({"index": 1, "verdict": "rejected"})
+    assert json.loads((tmp_path / "blender-current.json").read_text()) == baseline
+
+
 def test_http_loop_and_write_boundary(tmp_path, fake_blender):
     server = make_server(Workbench(tmp_path), 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

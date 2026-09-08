@@ -20,6 +20,7 @@ from rocinante.spec import RocketSpec
 HERE = Path(__file__).parent
 BUILD_SCRIPT = HERE / "build_rocket.py"
 SHIP_SCRIPT = HERE / "build_ship.py"
+LIVE_SHIP_SCRIPT = HERE / "live_ship.py"
 
 
 class BlenderError(RuntimeError):
@@ -98,6 +99,21 @@ def build_ship_mesh(spec: ShipSpec, out_path: str | Path, timeout: int = 240) ->
     if not out_path.exists():
         raise BlenderError(f"blender ran but produced no ship at {out_path}")
     return out_path
+
+
+def launch_live_ship(spec_path: str | Path) -> subprocess.Popen:
+    """Open Blender's persistent, auto-refreshing Roci scene.
+
+    ``spec_path`` is deliberately a file, rather than an IPC endpoint: it
+    keeps the demo inspectable and lets Blender remain a normal editable UI.
+    The Blender-side timer regenerates the mesh when its contents change.
+    """
+    path = Path(spec_path).resolve()
+    return subprocess.Popen(
+        [blender_bin(), "--factory-startup", "--python", str(LIVE_SHIP_SCRIPT), "--", str(path)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def render_ship_still(
