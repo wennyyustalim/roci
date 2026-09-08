@@ -1,9 +1,11 @@
+import json
 import threading
 from unittest.mock import Mock
 
 import httpx
 import pytest
 
+from rocinante.agent.refit import RefitModelError
 from rocinante.samples import ROCINANTE
 from rocinante.workbench import Workbench, make_server
 
@@ -93,9 +95,34 @@ def fake_blender(monkeypatch):
     monkeypatch.setattr("rocinante.handoff.build_ship_mesh", build)
 
 
-def test_export_uses_parent_not_previous_rejected_revision(tmp_path, fake_blender):
-    import json
+def test_live_model_provenance_survives_config_change_reload_and_export(
+    tmp_path, monkeypatch, fake_blender
+):
+    def propose(self, ship, ask):
+        after = ship.model_copy(deep=True)
+        after.hull.armor_cm += 1
+        after.rationale = f"Live proposal for: {ask}"
+        return after
 
+    monkeypatch.setenv("ROCINANTE_MODEL", "gpt-6-astra-demo")
+    monkeypatch.setattr("rocinante.workbench.RefitAgent.propose", propose)
+    proposed = Workbench(tmp_path, live=True).propose({"ask": "add armor"})
+    assert proposed["model"] == "gpt-6-astra-demo"
+    assert proposed["iterations"][1]["model"] == "gpt-6-astra-demo"
+
+    monkeypatch.setenv("ROCINANTE_MODEL", "gpt-6-astra-next")
+    reloaded = Workbench(tmp_path, live=True)
+    assert reloaded.snapshot()["model"] == "gpt-6-astra-next"
+    assert reloaded.state["iterations"][1]["model"] == "gpt-6-astra-demo"
+
+    exported = reloaded.export({"index": 1})
+    assert exported["model"] == "gpt-6-astra-next"
+    assert exported["iterations"][1]["model"] == "gpt-6-astra-demo"
+    report = json.loads((tmp_path / "exports/v0001/comparison.json").read_text())
+    assert report["model"] == "gpt-6-astra-demo"
+
+
+def test_export_uses_parent_not_previous_rejected_revision(tmp_path, fake_blender):
     bench = Workbench(tmp_path)
     bench.propose({"preset": "armor"})
     bench.decide({"index": 1, "verdict": "rejected"})
@@ -107,6 +134,45 @@ def test_export_uses_parent_not_previous_rejected_revision(tmp_path, fake_blende
     assert report["before"]["derived"] == ROCINANTE.derived()
     assert report["after"]["derived"] == ROCINANTE.derived()
     assert state["accepted"] == 0
+
+
+def test_export_and_share_keep_the_accepted_parent_after_a_rejection(
+    tmp_path, monkeypatch, fake_blender
+):
+    shared = {}
+    client = Mock(base_url="https://work.withkord.com")
+
+    def share_diff(before, after, title):
+        shared.update(before=before.read_bytes(), after=after.read_bytes(), title=title)
+        return {"url": "/d/accepted-parent"}
+
+    client.share_diff.side_effect = share_diff
+    monkeypatch.setattr("rocinante.workbench.KordClient", lambda: client)
+
+    bench = Workbench(tmp_path)
+    bench.propose({"preset": "torpedoes"})
+    bench.decide({"index": 1, "verdict": "approved"})
+    bench.propose({"preset": "armor"})
+    bench.decide({"index": 2, "verdict": "rejected"})
+    bench = Workbench(tmp_path)
+    proposed = bench.propose({"preset": "drive"})["iterations"][3]
+
+    assert proposed["parent"] == 1
+    bench.export({"index": 3})
+    state = bench.share({"index": 3})
+
+    before = json.loads(shared["before"].removeprefix(b"glTF"))
+    after = json.loads(shared["after"].removeprefix(b"glTF"))
+    assert before == state["iterations"][1]["spec"]
+    assert after == state["iterations"][3]["spec"]
+    assert after["hull"]["armor_cm"] == before["hull"]["armor_cm"]
+    assert shared["title"] == "Rocinante v1 → v3 (fixture)"
+    assert state["accepted"] == 1
+    assert state["iterations"][3]["status"] == "pending"
+
+    report = json.loads((tmp_path / "exports/v0003/comparison.json").read_text())
+    assert report["parent"] == 1
+    assert report["artifacts"] == state["iterations"][3]["handoff"]["artifacts"]
 
 
 def test_share_failure_retry_and_reload_do_not_lose_review(tmp_path, monkeypatch, fake_blender):
@@ -155,6 +221,79 @@ def test_interrupted_share_becomes_explicit_retry(tmp_path, fake_blender):
     bench.save()
     recovered = Workbench(tmp_path)
     assert recovered.state["iterations"][1]["handoff"]["status"] == "share_failed"
+
+
+def test_interrupted_export_becomes_retryable_after_restart(tmp_path, fake_blender):
+    bench = Workbench(tmp_path)
+    bench.propose({"preset": "drive"})
+    bench.state["iterations"][1]["handoff"] = {"status": "exporting"}
+    bench.save()
+
+    recovered = Workbench(tmp_path)
+    handoff = recovered.state["iterations"][1]["handoff"]
+    assert handoff["status"] == "export_failed"
+    assert "interrupted" in handoff["error"].lower()
+    assert recovered.state["iterations"][1]["status"] == "pending"
+    assert recovered.export({"index": 1})["iterations"][1]["handoff"]["status"] == "exported"
+
+
+def test_http_model_failure_returns_502_and_preserves_server_state(
+    tmp_path, monkeypatch
+):
+    def fail(*args):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr("rocinante.workbench.RefitAgent.propose", fail)
+    server = make_server(Workbench(tmp_path, live=True), 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{server.server_port}") as client:
+            failed = client.post("/api/propose", json={"ask": "more armor"})
+            assert failed.status_code == 502
+            assert failed.json() == {
+                "error": "Request failed. Check server logs; the accepted design is preserved."
+            }
+            state = client.get("/api/state")
+            assert state.status_code == 200
+            assert state.json()["accepted"] == 0
+            assert len(state.json()["iterations"]) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert len(Workbench(tmp_path).state["iterations"]) == 1
+
+
+def test_http_refit_model_error_reaches_client_and_preserves_state(
+    tmp_path, monkeypatch
+):
+    message = "gpt-6-astra authentication failed; set OPENAI_API_KEY"
+
+    def fail(*args):
+        raise RefitModelError(message)
+
+    monkeypatch.setattr("rocinante.workbench.RefitAgent.propose", fail)
+    server = make_server(Workbench(tmp_path, live=True), 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{server.server_port}") as client:
+            failed = client.post("/api/propose", json={"ask": "more armor"})
+            assert failed.status_code == 502
+            assert failed.json() == {
+                "error": f"{message}. The accepted design is preserved."
+            }
+            state = client.get("/api/state").json()
+            assert state["accepted"] == 0
+            assert len(state["iterations"]) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert len(Workbench(tmp_path).state["iterations"]) == 1
 
 
 def test_share_url_rejects_non_web_links():

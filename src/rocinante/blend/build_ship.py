@@ -71,9 +71,9 @@ def hull_profile(hull, steps=24):
     r_nose = r_max * hull["taper"]
     nose_len = length * 0.28
     pts = []
-    for i in range(steps + 1):  # nose: quarter-ellipse from a point to r_nose
+    for i in range(steps + 1):  # nose: quarter-ellipse from r_nose to the tip
         f = i / steps
-        pts.append((length - nose_len * (1 - f), r_nose * math.sqrt(max(0.0, 1 - (1 - f) ** 2))))
+        pts.append((length - nose_len + nose_len * f, r_nose * math.sqrt(max(0.0, 1 - f**2))))
     for i in range(1, steps + 1):  # barrel: nose radius flaring to the beam
         f = i / steps
         pts.append((length - nose_len - (length - nose_len) * f, r_nose + (r_max - r_nose) * f**0.7))

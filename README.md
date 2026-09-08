@@ -67,20 +67,32 @@ uv run rocinante demo --port 3001
 # Open http://127.0.0.1:3001/
 ```
 
-Choose a fixture refit, inspect the primitive ship comparison and computed
+Choose a fixture refit, inspect the ship comparison and computed
 consequences, then approve or reject. Repeat: the next proposal starts from
 the last approved design. History survives refreshes and server restarts in
 `out/workbench/workbench.json`. Use `--out out/another-run` for a fresh loop.
 The 3D viewer needs access to jsDelivr; review and metrics remain usable if
 its modules fail to load. No Blender or API key is needed for fixture mode.
 
-`uv run rocinante demo --live` uses the existing model proposal method with
-free text. Export `OPENAI_API_KEY` and optionally `ROCINANTE_MODEL` in the
-launching shell first (`.env` is not loaded automatically). Live model access
-is not verified by the fixture demo. Local decisions do not approve Kord sessions.
+For free-text model proposals, set `OPENAI_API_KEY` and optionally
+`ROCINANTE_MODEL` in `.env`, then launch with:
+
+```bash
+KORD_API_BASE=https://work.withkord.com uv run --env-file .env rocinante demo \
+  --live --port 3001 --out out/demo-live
+```
+
+The explicit `--env-file` loads local configuration; ordinary launches do not.
+Live mode fails early if the key is missing. Real `gpt-6-astra` structured proposals have been verified end to end with
+computed torpedo and armor consequences. The configured model is shown in
+the UI and saved with each revision; fixture tests do not exercise the API. Local decisions do
+not approve Kord sessions. [DEMO.md](DEMO.md) contains the complete rehearsal,
+including rejection, next-parent verification and restart recovery.
 
 For a proposal, **Export comparison** regenerates both GLBs through Blender
-and offers downloads plus a computed comparison report. **Share with Kord**
+and loads the real pair into the local viewer, with a ghosted parent and
+affected-part highlights. Downloads include both GLBs and a computed
+comparison report. **Share with Kord**
 uploads that exact pair and saves a public comparison link on the revision.
 The destination is shown before sharing and follows `KORD_API_BASE`. Files
 are saved under `out/workbench/exports/vNNNN/`; failures preserve the proposal

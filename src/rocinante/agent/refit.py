@@ -26,9 +26,16 @@ from rocinante.agent import prompts
 from rocinante.diff import SpecDiff, diff_ships
 from rocinante.ship import ShipSpec
 
+DEFAULT_MODEL = "gpt-6-astra"
+
 
 def model_name() -> str:
-    return os.getenv("ROCINANTE_MODEL", "gpt-6-astra")
+    """The API model, with blank shell/.env values treated as unset."""
+    return os.getenv("ROCINANTE_MODEL", "").strip() or DEFAULT_MODEL
+
+
+class RefitModelError(RuntimeError):
+    """A live proposal failed without changing the current design."""
 
 
 @dataclass
@@ -88,35 +95,66 @@ class RefitAgent:
     out_dir: Path = Path("out")
     build_meshes: bool = True
     history: list[RefitResult] = field(default_factory=list)
+    client: object | None = field(default=None, repr=False)
 
     def propose(self, ship: ShipSpec, ask: str) -> ShipSpec:
         """Ask Astra for the next revision of this ship.
 
-        Structured output against ShipSpec's JSON schema, so a parse failure
-        is impossible rather than merely unlikely. Never let it emit free text:
-        every retry costs demo seconds, and the schema is the contract.
+        Structured output against ShipSpec's JSON schema makes malformed output
+        unlikely. Refusals, interrupted responses, and custom Pydantic validators
+        can still fail, so those paths become explicit errors without a revision.
         """
-        from openai import OpenAI
+        from openai import OpenAI, OpenAIError
+        from pydantic import ValidationError
 
-        client = OpenAI()
-        response = client.responses.parse(
-            model=model_name(),
-            input=[
-                {"role": "system", "content": prompts.SHIP_SYSTEM},
-                {
-                    "role": "user",
-                    "content": prompts.REFIT.format(
-                        ask=ask,
-                        spec=ship.model_dump_json(indent=2, exclude={"rationale"}),
-                        derived=_derived_block(ship),
-                    ),
-                },
-            ],
-            text_format=ShipSpec,
-        )
+        ask = ask.strip()
+        if not ask:
+            raise ValueError("A refit request cannot be empty")
+
+        selected_model = model_name()
+        client = self.client
+        if client is None and not os.getenv("OPENAI_API_KEY", "").strip():
+            raise RefitModelError(
+                f"{selected_model}: live refit needs OPENAI_API_KEY"
+            )
+        owns_client = client is None
+        try:
+            client = client or OpenAI(timeout=90.0, max_retries=1)
+            response = client.responses.parse(
+                model=selected_model,
+                input=[
+                    {"role": "system", "content": prompts.SHIP_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": prompts.REFIT.format(
+                            ask=ask,
+                            spec=ship.model_dump_json(indent=2, exclude={"rationale"}),
+                            derived=_derived_block(ship),
+                        ),
+                    },
+                ],
+                text_format=ShipSpec,
+                store=False,
+            )
+        except OpenAIError as exc:
+            raise RefitModelError(_api_failure(selected_model, exc)) from exc
+        except ValidationError as exc:
+            raise RefitModelError(
+                f"{selected_model} returned a ShipSpec that failed domain validation"
+            ) from exc
+        finally:
+            if owns_client and client is not None:
+                client.close()
+
         proposed = response.output_parsed
         if proposed is None:
-            raise RuntimeError("model returned no parsable ShipSpec")
+            raise RefitModelError(_unparsed_failure(selected_model, response))
+        if not proposed.rationale.strip():
+            raise RefitModelError(f"{selected_model} returned a ShipSpec without a rationale")
+        before = ship.model_dump(exclude={"rationale"})
+        after = proposed.model_dump(exclude={"rationale"})
+        if before == after:
+            raise RefitModelError(f"{selected_model} returned a no-op ShipSpec")
         return proposed
 
     def refit(self, ship: ShipSpec, ask: str, index: int = 1) -> RefitResult:
@@ -164,3 +202,38 @@ class RefitAgent:
 
 def _derived_block(ship: ShipSpec) -> str:
     return "\n".join(f"  {k}: {v:,.2f}" for k, v in ship.derived().items())
+
+
+def _api_failure(selected_model: str, exc: Exception) -> str:
+    """Turn SDK failures into short, actionable demo errors without response dumps."""
+    name = type(exc).__name__
+    if name == "AuthenticationError":
+        detail = "authentication failed; set a valid OPENAI_API_KEY"
+    elif name in {"PermissionDeniedError", "NotFoundError"}:
+        detail = "the API key cannot access that model"
+    elif name == "RateLimitError":
+        detail = "the API rate limit or spending limit was reached"
+    elif name in {"APIConnectionError", "APITimeoutError"}:
+        detail = "the API could not be reached before the timeout"
+    elif name == "BadRequestError":
+        detail = "the API rejected the model or structured-output request"
+    else:
+        detail = "the API request failed"
+    return f"{selected_model}: {detail} ({name})"
+
+
+def _unparsed_failure(selected_model: str, response: object) -> str:
+    """Explain refusals and incomplete responses while keeping raw output private."""
+    for item in getattr(response, "output", ()) or ():
+        for content in getattr(item, "content", ()) or ():
+            if getattr(content, "type", None) == "refusal":
+                return f"{selected_model} refused the refit request"
+
+    incomplete = getattr(response, "incomplete_details", None)
+    reason = getattr(incomplete, "reason", None)
+    if reason:
+        return f"{selected_model} returned an incomplete ShipSpec ({reason})"
+
+    status = getattr(response, "status", None)
+    suffix = f" (response status: {status})" if status else ""
+    return f"{selected_model} returned no parsable ShipSpec{suffix}"

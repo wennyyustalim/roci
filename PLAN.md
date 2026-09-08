@@ -30,14 +30,20 @@ approve, propose armor, inspect the performance penalty, reject, propose a
 cone extension and verify its parent is still the approved torpedo revision.
 Refresh and restart without losing the review history.
 
-### 2. Live proposal path — wired; external call verification remains
+### 2. Live proposal path — real Astra calls verified
 
 `rocinante demo --live` swaps fixture selection for free text and calls the
 existing `RefitAgent.propose()`. The remainder of the loop is identical.
 Model access comes from the process environment (`OPENAI_API_KEY`,
-`ROCINANTE_MODEL`); `.env` is not automatically loaded. Validate actual model
-access and structured-output compatibility before presenting this as a live
-model demo. A failed call must leave the accepted design and history intact.
+`ROCINANTE_MODEL`); use `uv run --env-file .env` to load local configuration.
+Startup rejects an empty API key. The installed SDK supports the structured
+parse call. Real `gpt-6-astra` access and structured output were verified with
+the main project's configured `.env`: the torpedo request returned a complete
+validated spec in 19.35 seconds, adding eight slots and preserving computed
+cruise endurance. A real armor request returned the expected performance cost.
+The UI, saved revision and exported comparison retain the actual model name.
+A separate `gpt-5-mini` request also succeeded. Failed calls preserve the
+accepted design and return sanitized actionable errors.
 
 ### 3. Kord comparison handoff — implemented
 
@@ -66,27 +72,56 @@ comments are automatically posted by this workbench.
 | Export/share controls + download links | Handoff contract | Can run alongside failure-path tests; integrated before browser verification. Implemented. |
 | Failure/restart/duplicate-request tests | Handoff contract | Can run alongside UI work. Tests cover preserved review state and stable share reuse. Implemented. |
 | Real Blender → Kord smoke test | Backend + UI | Complete: v1 → v3 exported via UI, public comparison created, overlay visually checked, link persisted. |
-| Live structured model smoke test | Credentials/model access | Independent of Kord work; next. Check SDK/schema compatibility and run one real request through the same loop. |
-| Load exported GLBs into the local comparison | Export contract | Independent of model access. Replace preview only after matching part IDs and framing both versions. |
+| Live structured model smoke test | Credentials/model access | Complete: real Astra torpedo and armor requests parsed and produced computed consequences; model provenance is persisted. |
+| Load exported GLBs into the local comparison | Export contract | Complete. Real GLBs load with part highlights, ghosted parent, combined framing and schematic fallback. Corrected the malformed generated nose profile. |
 | Authenticated Kord review sessions | Shared comparison + configured local Kord | Later, serial: stable file identity, upload response handling, verdict refresh. Posting rationale comments requires explicit messaging authorization. |
 | Variable-mass mission solver | Existing physics tests | Independent of integrations; later. Reconcile endurance warnings with delta-v feasibility before adding moving arrival-time claims. |
 
-I am executing the integration dependencies serially in this worktree. UI
-work and failure tests are separable, but final acceptance is one end-to-end
-check; parallel tasks must not edit the shared state/API contract concurrently.
+Execution this session used three parallel agent lanes: model contract and
+failure handling (Sol), GLB viewer and geometry (Terra), and persistence/handoff
+regression audit (Sol). The manager handled CLI startup, the runbook, browser
+rehearsal, public sharing and restart verification serially after integration.
 
-Validation for this milestone: 44 tests passed, one existing simulator test
-skipped; changed Python files lint clean. Real fixture comparison:
-https://work.withkord.com/d/X3pHo1_eA4TrU7BM_KC24_EQ (expires per Kord's share TTL).
+Browser rehearsal on 8 September completed the fixture loop: v1 torpedoes
+approved, v2 armor rejected, v3 cone based on accepted v1. Real corrected
+Blender GLBs were exported, loaded locally, shared with Kord and visually
+inspected in side-by-side and overlay modes. Restart preserved all revisions,
+the parent, and the share URL. Duplicate sharing reused the saved link.
+
+Current fixture comparison:
+https://work.withkord.com/d/tnFvr4eoj9loJTEAvNEZyWMO
+(expires 15 September 2026, 18:49 UTC). Saved rehearsal is
+`out/demo-fixture`. The live Astra workbench now runs at http://127.0.0.1:3001/
+with separate state in `out/demo-astra`.
+In Kord's overlay view, scroll out over the canvas if switching modes leaves
+the camera too close. The local viewer frames both versions automatically.
+
 The development server processes requests serially; model/export/upload calls
 temporarily occupy it. Background jobs and concurrent viewers are later work.
+Validation: **67 passed, 1 skipped**; changed Python files pass Ruff, browser
+module syntax passes Node, and the live CLI rejects a missing key as expected.
+Final live acceptance is complete against `out/demo-astra`: three real Astra
+proposals, torpedoes approved, armor rejected, cone based on approved v1,
+correct source specs and hashes in exported GLBs, local rendering, real Kord
+sharing and overlay inspection, server restart, and duplicate-share reuse.
+The first structured request took 19.35 seconds. Evidence is saved locally in
+`out/demo-astra/acceptance.json`, `live-smoke.json`, `workbench.json` and exports.
+
+Real Astra comparison: https://work.withkord.com/d/17iuGJIpCOLwwZreHoqIQwrI
+(expires 15 September 2026 at 18:57 UTC). See DEMO.md for the exact restart
+command using the main project's configured `.env`; credentials are not copied
+into the worktree or checked in. The model selected in that env is `gpt-5-mini`,
+so the verified Astra launch explicitly sets `ROCINANTE_MODEL=gpt-6-astra`.
+
+The end-to-end milestone is demoable. Further work is fidelity and the later
+integration/physics tracks listed above.
 
 ### 4. Fidelity — after the loop
 
-Replace primitives with generated GLBs, retain part IDs, then improve
-materials. Tank packaging and volume constraints are not yet modeled.
-Combat, interior, torpedo flight and cinematic animation are out of this
-slice. Torpedoes here are simple loaded-tube markers, not simulated flights.
+Generated GLBs now replace primitives after export, retaining semantic part
+IDs. Material polish and closer ship proportions remain later work. Tank
+packaging and volume constraints are not yet modeled. Combat, interior,
+torpedo flight and cinematic animation are out of this slice.
 
 ### Physics/display constraints
 

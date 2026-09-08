@@ -7,6 +7,7 @@ rest. `rocinante doctor` first, always.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -251,10 +252,20 @@ def demo(
     live: bool = typer.Option(False, "--live", help="Use the configured model instead of fixtures."),
 ) -> None:
     """Run the local, interactive ship refit and human review loop."""
+    from rocinante.agent.refit import model_name
     from rocinante.workbench import Workbench, make_server
 
+    if live and not os.getenv("OPENAI_API_KEY", "").strip():
+        raise typer.BadParameter(
+            "Live mode needs OPENAI_API_KEY. Export it or launch with "
+            "uv run --env-file .env rocinante demo --live."
+        )
     server = make_server(Workbench(out, live=live), port)
     console.print(f"Workbench: http://127.0.0.1:{port}/ ({'live model' if live else 'fixtures'})")
+    if live:
+        console.print(f"Model: {model_name()}")
+    console.print(f"Saved state: {out / 'workbench.json'}")
+    console.print(f"Kord comparison destination: {KordClient().base_url}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

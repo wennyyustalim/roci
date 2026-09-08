@@ -18,11 +18,11 @@ function renderScene() {
 }
 function render() {
   const it=state.iterations[selected], prev=state.iterations[it.parent], pending=state.iterations.at(-1).status==="pending";
-  el("mode").textContent=state.mode==="fixture" ? "Fixture mode · no model call" : "Live model proposals";
+  el("mode").textContent=state.mode==="fixture" ? "Fixture mode · no model call" : `Live model proposals${state.model ? ` · ${state.model}` : ""}`;
   el("preset").hidden=state.mode!=="fixture"; el("ask").hidden=state.mode!=="live";
   el("propose").disabled=busy || pending;
   el("title").textContent=`${it.name} / v${it.index}`;
-  el("comparison").textContent=prev ? `Compared with accepted v${prev.index} · ${it.status} · ${it.source} proposal` : "Accepted baseline · drag to orbit, scroll to zoom";
+  el("comparison").textContent=prev ? `Compared with accepted v${prev.index} · ${it.status} · ${it.model || it.source} proposal` : "Accepted baseline · drag to orbit, scroll to zoom";
   el("rationale").textContent=it.rationale;
   el("timeline").replaceChildren(...state.iterations.map((item,i)=> {
     const button=document.createElement("button");button.className="revision";button.setAttribute("aria-current",String(i===selected));
@@ -82,7 +82,9 @@ el("fit").onclick=()=>scene?.fit();
 try {
   state=await api("state"); selected=state.iterations.length-1;
   for(const [value,label] of Object.entries(state.presets)) {const option=document.createElement("option");option.value=value;option.textContent=label;el("preset").append(option);}
-  el("status").textContent="Choose a refit to run the loop. Every performance number is computed from its spec.";render();
+  el("status").textContent=state.iterations.at(-1).status==="pending"
+    ? "Saved proposal awaiting review. Approve or reject it before requesting the next refit."
+    : "Choose a refit to run the loop. Every performance number is computed from its spec.";render();
 } catch(error) {el("status").textContent=`Unable to load workbench: ${error.message}`;el("propose").disabled=true;}
 // Keep review and metrics usable even if WebGL or the external module CDN fails.
 try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));renderScene();}
