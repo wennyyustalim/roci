@@ -7,8 +7,14 @@ function buildExplosion() {
   const root=new THREE.Group(), time={value:0}, clouds=[];
   const plane=new THREE.PlaneGeometry(1,1);
   const vertexShader=`varying vec2 vUv;
-    void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
+    #include <common>
+    #include <logdepthbuf_pars_vertex>
+    void main(){
+      vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+      #include <logdepthbuf_vertex>
+    }`;
   const fragmentShader=`
+    #include <logdepthbuf_pars_fragment>
     varying vec2 vUv;
     uniform float time, seed;
     float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
@@ -22,6 +28,7 @@ function buildExplosion() {
       return n;
     }
     void main(){
+      #include <logdepthbuf_fragment>
       vec2 p=vUv*2.0-1.0;
       float n=fbm(p*3.8+vec2(seed,time*0.6));
       float detail=fbm(p*9.0+vec2(n*2.0+seed,-time*0.8));
@@ -47,7 +54,10 @@ function buildExplosion() {
   }
   const flash=new THREE.Mesh(plane,new THREE.ShaderMaterial({
     uniforms:{time},vertexShader,fragmentShader:`varying vec2 vUv;uniform float time;
-      void main(){vec2 p=vUv*2.0-1.0;float halo=pow(max(0.0,1.0-length(p)),3.0);
+      #include <logdepthbuf_pars_fragment>
+      void main(){
+      #include <logdepthbuf_fragment>
+      vec2 p=vUv*2.0-1.0;float halo=pow(max(0.0,1.0-length(p)),3.0);
       float core=exp(-dot(p,p)*36.0);
       gl_FragColor=vec4(1.0,0.84,0.57,(halo+core)*exp(-time*15.0));}`,
     transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false,

@@ -1,6 +1,6 @@
 const el=id=>document.getElementById(id);
 const setOptionalText=(id,value)=>{const node=el(id);if(node) node.textContent=value;};
-let launching=false, launchRequest=0, desktopClock=null, launchPresentation=null;
+let launching=false, launchRequest=0, desktopClock=null;
 let state, scene, busy=false, pollTimer=null, selectedTorpedo=null, selectionVersion=0, selectionSync=Promise.resolve(), syncTimer=null;
 const fmt=(n,d=1)=>n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 async function api(path,payload) {
@@ -135,6 +135,7 @@ function syncStatus(snapshot) {
 function selectModel(selection) {
   const id=selection.kind==="torpedo" ? selection.id : null;
   if(launching) return;
+  if(!el("launch-hud").hidden) showSidebarPage("workshop");
   setPresentation(Boolean(id));
   selectedTorpedo=id; const version=++selectionVersion;
   renderScope(); el("propose").disabled=true; setOptionalText("selection-sync","Syncing selection…");
@@ -161,6 +162,12 @@ function launchBusy(on) {
   el("propose").disabled=on || busy;
   renderScope();
 }
+function showSidebarPage(page) {
+  for(const [name,id] of [["workshop","workshop-page"],["deck","deck-detail"],["launch","launch-hud"]])
+    el(id).hidden=name!==page;
+  el("sidebar").scrollTop=0;
+  if(page!=="workshop") setPresentation(false);
+}
 function setPresentation(on) {
   document.body.classList.toggle("presentation",on);
   el("presentation").setAttribute("aria-pressed",String(on));
@@ -184,23 +191,21 @@ function desktopSample(phase,time,force=false) {
 }
 function cancelLaunch() {
   desktopSample("cancelled",desktopClock?.time || 0,true);desktopClock=null;
-  ++launchRequest; scene?.cancelLaunch(); launchBusy(false);el("launch-hud").hidden=true;
-  if(launchPresentation!==null) setPresentation(launchPresentation);
-  launchPresentation=null;
+  const wasOpen=!el("launch-hud").hidden;
+  ++launchRequest; scene?.cancelLaunch(); launchBusy(false);showSidebarPage("workshop");
+  if(wasOpen) setPresentation(false);
 }
 async function launchTorpedo(target=selectedTorpedo) {
   if(launching || busy || !selectedTorpedo || !scene) return;
   if(target!==selectedTorpedo) return;
   scene.cancelLaunch();desktopClock=null;
   const request=++launchRequest, index=current().index;
-  launchPresentation=document.body.classList.contains("presentation");
-  setPresentation(true);
-  launchBusy(true);el("launch-hud").hidden=false;
+  launchBusy(true);showSidebarPage("launch");
   el("launch-desktop").textContent="";
   el("launch-phase").textContent="Running OpenRocket…";
   el("launch-caption").textContent="Computing this torpedo’s atmospheric flight";
   el("launch-telemetry").hidden=true;el("flight-details").hidden=true;
-  el("cancel-launch").textContent="Cancel launch";
+  el("cancel-launch").textContent="← Cancel launch";
   try {
     await selectionSync;
     const data=await api("launch",{torpedo_id:target,index});
@@ -229,14 +234,14 @@ async function launchTorpedo(target=selectedTorpedo) {
   } catch(error) {
     if(request!==launchRequest) return;
     launchBusy(false);el("launch-phase").textContent="Launch unavailable";
-    el("launch-caption").textContent=error.message;el("cancel-launch").textContent="Close";
+    el("launch-caption").textContent=error.message;el("cancel-launch").textContent="← Back to workshop";
   }
 }
 el("canvas").addEventListener("launchrequest",event=>launchTorpedo(event.detail.id));
 el("cancel-launch").onclick=()=>{cancelLaunch();if(selectedTorpedo) scene?.selectTorpedo(selectedTorpedo,false);};
 addEventListener("keydown",event=>{if(event.key==="Escape" && launching) {cancelLaunch();scene?.reset();}});
 el("canvas").addEventListener("launchchange",({detail:d})=>{
-  if(d.phase==="idle") {launchBusy(false);el("launch-hud").hidden=true;return;}
+  if(d.phase==="idle") {launchBusy(false);showSidebarPage("workshop");return;}
   const phases={pullback:"Pulling back to the Roci",assembling:"Assembling the ship",tracking:"Acquiring moving target",flight:"Torpedo away",impact:"Target destroyed",complete:"Training run complete"};
   if(phases[d.phase]) el("launch-phase").textContent=phases[d.phase];
   if(d.phase==="pullback") el("launch-caption").textContent="OpenRocket atmospheric ascent · fictional target in space";
@@ -251,7 +256,7 @@ el("canvas").addEventListener("launchchange",({detail:d})=>{
     el("launch-range").textContent=`${fmt(d.range)} m to target`;
   }
   if(d.phase==="impact") {el("launch-range").textContent="CONTACT";desktopSample("impact",desktopClock?.time || 0,true);}
-  if(d.phase==="complete") {desktopSample("complete",desktopClock?.time || 0,true);launchBusy(false);el("cancel-launch").textContent="Back to workshop";}
+  if(d.phase==="complete") {desktopSample("complete",desktopClock?.time || 0,true);launchBusy(false);el("cancel-launch").textContent="← Back to workshop";}
 });
 
 el("canvas").addEventListener("modelselect",event=>selectModel(event.detail));
@@ -270,7 +275,8 @@ const deckDescriptions={
 el("canvas").addEventListener("assemblychange",event=>{
   const detail=event.detail;
   const selected=detail.decks.find(d=>d.index===detail.focus);
-  el("deck-detail").hidden=!selected;
+  if(selected && !launching && el("launch-hud").hidden) showSidebarPage("deck");
+  else if(!selected && !el("deck-detail").hidden) showSidebarPage("workshop");
   if(selected) {
     el("deck-number").textContent=`DECK ${String(selected.index+1).padStart(2,"0")}`;
     el("deck-title").textContent=selected.name;

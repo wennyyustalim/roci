@@ -73,14 +73,20 @@ export function createAssembly(models, camera, controls, container) {
         } else if(data.assembly_kind==="torpedo") {
           const element=document.createElement("span"); element.className="part-label torpedo-label";
           const name=document.createElement("button"); name.type="button"; name.className="torpedo-select";
-          name.textContent=data.torpedo_id?.replace("torpedo_","Torpedo ") || "Torpedo";
-          name.setAttribute("aria-label",`Select ${name.textContent}`);
+          const title=data.torpedo_id?.replace("torpedo_","Torpedo ") || "Torpedo";
+          name.textContent=data.torpedo_id ? `T${Number(data.torpedo_id.replace("torpedo_",""))}` : "Torpedo";
+          name.setAttribute("aria-label",`Select ${title}`);
           name.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{id:data.torpedo_id}}));});
           const launch=document.createElement("button"); launch.type="button"; launch.className="torpedo-launch"; launch.textContent="Launch";
-          launch.setAttribute("aria-label",`Launch ${name.textContent}`);
+          launch.setAttribute("aria-label",`Launch ${title}`);
           launch.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("launchrequest",{detail:{id:data.torpedo_id}}));});
-          element.append(name,launch); layer.append(element);
-          labels.push({object,element,launch,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.06,center.z)),torpedo:true});
+          const leader=document.createElementNS("http://www.w3.org/2000/svg","svg");
+          leader.classList.add("torpedo-leader"); leader.setAttribute("viewBox","0 0 36 50"); leader.setAttribute("aria-hidden","true");
+          const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+          path.setAttribute("d","M 0 50 V 36 L 28 0 H 36"); leader.append(path);
+          element.append(leader,name,launch); layer.append(element);
+          // The leader terminates on the nose, and follows it while orbiting.
+          labels.push({object,element,launch,local:new THREE.Vector3(0,data.length_m,0),torpedo:true});
         } else if(data.assembly_kind==="crew") {
           // Crew remains selectable and available in deck detail, but only
           // torpedoes receive an on-canvas label in the focused UI.

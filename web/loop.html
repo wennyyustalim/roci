@@ -14,45 +14,53 @@
     <div><h1 id="title">Rocinante</h1><p id="comparison"></p></div>
   </header>
 
-  <div id="deck-detail" hidden><span class="eyebrow" id="deck-number"></span><h2 id="deck-title"></h2><p id="deck-description"></p><span id="deck-crew"></span><button id="all-decks" class="quiet" type="button">← All decks</button></div>
-  <div id="launch-hud" hidden aria-label="Torpedo training launch">
-    <span class="eyebrow">TORPEDO / TRAINING EXERCISE</span>
-    <h2 id="launch-phase" role="status" aria-live="polite"></h2>
-    <p id="launch-caption">OpenRocket atmospheric ascent · fictional target in space</p>
-    <p id="launch-desktop" role="status"></p>
-    <div id="launch-telemetry"><span id="launch-time">T+ 0.00 s</span><span id="launch-speed">0 m/s</span><span id="launch-range">Target acquiring</span></div>
-    <details id="flight-details"><summary>Flight results</summary><p id="flight-results"></p><p id="flight-warnings"></p></details>
-    <button id="cancel-launch" class="quiet" type="button">Cancel launch</button>
-  </div>
-  <aside class="panel">
-    <form id="proposal">
-      <div class="workshop-heading">
-        <button id="clear-selection" class="quiet back-button" type="button" aria-label="Back" title="Back" hidden>←</button>
-        <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
-      </div>
-      <p id="workshop-scope" class="form-intro">Select a loaded torpedo to edit it.</p>
-      <select id="preset" aria-label="Fixture refit" hidden></select>
-      <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>
-      <div id="samples" class="chips" aria-label="Sample requests"></div>
-      <button id="propose" type="submit">Ask gpt-6-astra</button>
-      <p id="selection-sync" role="status" aria-live="polite"></p>
-    </form>
-    <p id="status" role="status" aria-live="polite">Loading the ship…</p>
+  <aside id="sidebar" class="panel">
+    <section id="deck-detail" hidden aria-label="Deck details">
+      <button id="all-decks" class="quiet sidebar-back" type="button">← Back to ship</button>
+      <span class="eyebrow" id="deck-number"></span>
+      <h2 id="deck-title"></h2>
+      <p id="deck-description"></p>
+      <span id="deck-crew"></span>
+    </section>
+    <section id="launch-hud" hidden aria-label="Torpedo training launch">
+      <button id="cancel-launch" class="quiet sidebar-back" type="button">← Cancel launch</button>
+      <span class="eyebrow">TORPEDO / TRAINING EXERCISE</span>
+      <h2 id="launch-phase" role="status" aria-live="polite"></h2>
+      <p id="launch-caption">OpenRocket atmospheric ascent · fictional target in space</p>
+      <p id="launch-desktop" role="status"></p>
+      <div id="launch-telemetry"><span id="launch-time">T+ 0.00 s</span><span id="launch-speed">0 m/s</span><span id="launch-range">Target acquiring</span></div>
+      <details id="flight-details"><summary>Flight results</summary><p id="flight-results"></p><p id="flight-warnings"></p></details>
+    </section>
+    <section id="workshop-page" aria-label="Torpedo workshop">
+      <form id="proposal">
+        <div class="workshop-heading">
+          <button id="clear-selection" class="quiet back-button" type="button" aria-label="Back" title="Back" hidden>←</button>
+          <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
+        </div>
+        <p id="workshop-scope" class="form-intro">Select a loaded torpedo to edit it.</p>
+        <select id="preset" aria-label="Fixture refit" hidden></select>
+        <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>
+        <div id="samples" class="chips" aria-label="Sample requests"></div>
+        <button id="propose" type="submit">Ask gpt-6-astra</button>
+        <p id="selection-sync" role="status" aria-live="polite"></p>
+      </form>
+      <p id="status" role="status" aria-live="polite">Loading the ship…</p>
 
-    <ol id="progress" aria-label="Propagation">
-      <li data-step="astra"><span>Astra</span><em></em></li>
-      <li data-step="physics"><span>Physics</span><em></em></li>
-      <li data-step="blender"><span>Blender</span><em></em></li>
-      <li data-step="openrocket"><span>OpenRocket</span><em></em></li>
-      <li data-step="kord"><span>Kord</span><em></em><a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>open ↗</a></li>
-    </ol>
-    <p id="rationale"></p>
+      <ol id="progress" aria-label="Propagation">
+        <li data-step="astra"><span>Astra</span><em></em></li>
+        <li data-step="physics"><span>Physics</span><em></em></li>
+        <li data-step="blender"><span>Blender</span><em></em></li>
+        <li data-step="openrocket"><span>OpenRocket</span><em></em></li>
+        <li data-step="kord"><span>Kord</span><em></em><a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>open ↗</a></li>
+      </ol>
+      <p id="rationale"></p>
 
-    <h3>Torpedo <span>in OpenRocket</span></h3>
-    <dl id="torpedo"></dl>
-    <h3>Ship <span>computed from the spec</span></h3>
-    <dl id="metrics"></dl>
-    <h3>Spec changes</h3><ul id="changes"></ul>
+      <h3>Torpedo <span>in OpenRocket</span></h3>
+      <dl id="torpedo"></dl>
+      <h3>Ship <span>computed from the spec</span></h3>
+      <dl id="metrics"></dl>
+      <h3>Spec changes</h3><ul id="changes"></ul>
+    </section>
   </aside>
   <button id="presentation" class="sidebar-toggle" type="button" aria-pressed="false" aria-label="Collapse sidebar" title="Collapse sidebar"><span id="sidebar-toggle-icon" aria-hidden="true">‹</span></button>
 

@@ -41,14 +41,25 @@ function schematicShip(spec, changed, ghost, geometryChanged=[]) {
 function loadedTorpedo(spec, id, bay) {
   const group=buildTorpedo(spec,id);
   const length=spec.nose.length_m+spec.body.reduce((sum,t)=>sum+t.length_m,0);
-  const r=spec.body.at(-1).outer_radius_m, fins=spec.fins;
   const box=new THREE.Box3().setFromObject(bay), center=box.getCenter(new THREE.Vector3());
   const scale=Math.max(1,(box.max.y-box.min.y)*.9/length);
   group.scale.setScalar(scale);
-  const side=Math.sign(center.z || -1), clearance=(r+fins.height_m)*scale+.04;
-  group.position.set(center.x,center.y-length*scale/2,side<0 ? box.min.z-clearance : box.max.z+clearance);
+  // Seat the body on the cassette's actual face, rather than beyond the
+  // bounding box plus a full fin span (which left the round floating).
+  const outward=Math.abs(center.z)>.1 ? new THREE.Vector3(0,0,Math.sign(center.z)) : new THREE.Vector3(Math.sign(center.x || 1),0,0);
+  const reach=box.getSize(new THREE.Vector3()).length()+1;
+  const ray=new THREE.Raycaster(center.clone().addScaledVector(outward,reach),outward.clone().negate());
+  const hit=ray.intersectObject(bay,true)[0];
+  const normal=hit?.face ? hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)) : outward;
+  if(normal.dot(outward)<0) normal.negate();
+  const axis=new THREE.Vector3(0,1,0).projectOnPlane(normal).normalize();
+  if(axis.lengthSq()<.01) axis.set(0,1,0);
+  group.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),axis);
+  const radius=Math.max(...spec.body.map(t=>t.outer_radius_m))*scale;
+  group.position.copy(hit?.point || center).addScaledVector(normal,radius).addScaledVector(axis,-length*scale/2);
   group.userData.launch_position=group.position.toArray();
-  group.userData.assembly_offset=[Math.sign(center.x || 1)*5,0,side*11];
+  // Keep the round attached to its cassette throughout the exploded view.
+  group.userData.assembly_offset=bay.userData.assembly_offset || [Math.sign(center.x || 1)*5,0,Math.sign(center.z || 1)*11];
   return group;
 }
 
@@ -193,12 +204,17 @@ function ceresBody() {
   mesh(group,rock,new THREE.ShaderMaterial({
     vertexColors:true,
     vertexShader:`varying vec3 surfaceNormal; varying vec3 surfaceColor;
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
       void main() {
         surfaceNormal=mat3(modelMatrix)*normal; surfaceColor=color;
         gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+        #include <logdepthbuf_vertex>
       }`,
     fragmentShader:`varying vec3 surfaceNormal; varying vec3 surfaceColor;
+      #include <logdepthbuf_pars_fragment>
       void main() {
+        #include <logdepthbuf_fragment>
         vec3 n=normalize(surfaceNormal);
         float sunlight=max(dot(n,normalize(vec3(-.45,.8,-.2))),0.0);
         gl_FragColor=vec4(surfaceColor*(.07+sunlight*2.4),1.0);
@@ -267,9 +283,17 @@ function ringGate() {
   const field=new THREE.ShaderMaterial({
     uniforms:{time:{value:0}}, transparent:true, depthWrite:false, side:THREE.DoubleSide,
     blending:THREE.AdditiveBlending,
-    vertexShader:`varying vec2 local; void main() { local=position.xy/560.0; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader:`varying vec2 local; uniform float time;
+    vertexShader:`varying vec2 local;
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
       void main() {
+        local=position.xy/560.0; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+        #include <logdepthbuf_vertex>
+      }`,
+    fragmentShader:`varying vec2 local; uniform float time;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        #include <logdepthbuf_fragment>
         float r=length(local), angle=atan(local.y,local.x);
         float rim=exp(-abs(r-.896)*95.0);
         float halo=exp(-abs(r-.896)*20.0)*.14;
@@ -311,7 +335,9 @@ function neighbourhood() {
 
 export function createScene(container) {
   const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(40,1,.005,30000);
-  const renderer=new THREE.WebGLRenderer({antialias:true});
+  // Resolve closely layered hull panels even with the near plane needed for
+  // interiors and the far plane needed for the surrounding landmarks.
+  const renderer=new THREE.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.outputColorSpace=THREE.SRGBColorSpace;
   renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05;
