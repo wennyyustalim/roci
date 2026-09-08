@@ -179,9 +179,10 @@ it. Read the migration quickstart before 10:45, not at 15:00.
 nothing in it was placed by hand. The moment someone sculpts a detail, beat 2
 dies. This is the single most important engineering constraint of the day.
 
-**The Kord review session needs an env change** (`DEMO_LOGIN_EMAILS`), not a
-code change. If it is not done by noon, cut beat 4 to the diff link, which is
-anonymous and already works.
+**The Kord review session runs against local Kord.** Production's password
+account is OpenAI's directory-review account and is not ours to borrow. If
+local Kord is not up by noon, cut beat 4 to the diff link — anonymous, against
+production, already working.
 
 **Fan work.** The Expanse belongs to its authors and to Alcon. Disclaimer in
 the README, no trademarked assets in the repo.

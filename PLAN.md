@@ -43,8 +43,21 @@ Three paths, in the order to reach for them:
 2. **`/api/auth/demo-login` → upload → review session.** Kord's REST API is
    cookie-session only; there is no bearer token, which is why the old client
    would have 401'd on every call. The demo-login route is the supported way
-   in. It needs the demo address added to `DEMO_LOGIN_EMAILS` — **a Vercel env
-   change, not a code change.** Do that at 10:30 or drop the beat.
+   in — but **not against production.** Two locks guard it: the address must
+   sit under `demo.withkord.com` (so no real address can ever pass), and
+   `DEMO_LOGIN_EMAILS` must name it. That variable is already set in
+   production, to `reviewer@demo.withkord.com` — **the account OpenAI's plugin
+   directory reviews the Kord MCP connector with.** Rotating its password to
+   borrow it would break an in-flight directory review and the continuous
+   safety testing behind it. Adding a second address instead means editing the
+   variable, and Vercel has no update — it is `env rm` then `env add`, and
+   `vercel env rm` is a NEVER rule in Kord's CLAUDE.md.
+
+   So: **run this beat against local Kord.** `.env.local` points at a genuinely
+   local Supabase (127.0.0.1:54321), `provision-demo-reviewer.mts` mints a
+   reviewer there with no production reach, and `KORD_API_BASE` already
+   switches rocinante over. It also removes a live network dependency from the
+   stage demo, which is worth having on its own.
 3. The hosted MCP server. OAuth 2.1, and deliberately cannot write file bytes.
    Right for an interactive agent, wrong for a CLI uploading a mesh. Not used.
 
@@ -71,7 +84,7 @@ names into its part tree, so the names are load-bearing. Do not rename them.
 
 | Time | Model track | Systems track |
 |---|---|---|
-| 10:30 | Add the demo address to `DEMO_LOGIN_EMAILS`. Create the public repo and push. | |
+| 10:30 | ~~Repo~~ done: github.com/wennyyustalim/roci. Decide local-vs-production Kord for the review-session beat. | |
 | 10:45 | **Wire `RefitAgent.propose()` against the real GPT-6 Astra.** Check the migration guide first — the Responses/`text_format` shape in `agent/refit.py` is written against the current SDK and may have moved. | Hull silhouette: proportions until it reads as the Roci. Geometry only, no greeble. |
 | 12:00 | Prompt iteration. Three asks that produce clean, single-cause diffs. Save the transcripts — "how you worked with the model" is 25%. | Materials and the light rig. This is where "pretty" comes from. |
 | 13:00 | The refit beat driven live: ask → spec → regenerate → Kord link. | Mission consequence: the burn line moves when the spec does. |
