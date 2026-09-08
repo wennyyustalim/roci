@@ -143,6 +143,7 @@ class Workbench:
         openrocket_bounds: Bounds | None = None,
     ):
         self._flight_cache = {}
+        self._launch_playback = None
         self.out = out
         self.live = live
         self.torpedo_only = torpedo_only
@@ -496,13 +497,57 @@ class Workbench:
             raise ValueError("The ship revision changed. Select the torpedo again.")
         spec = self.target_ship(current, target).torpedo
         key = spec.model_dump_json()
-        if key not in self._flight_cache:
-            result = OpenRocketSimulator().run(spec).model_dump(mode="json")
+        import hashlib
+        flight_path = self.torpedo_dir / f"launch-{hashlib.sha256(key.encode()).hexdigest()[:20]}.ork"
+        if key not in self._flight_cache or (self.show_openrocket and not flight_path.exists()):
+            result = OpenRocketSimulator(flight_path=flight_path).run(spec).model_dump(mode="json")
             if len(self._flight_cache) >= 16:
                 self._flight_cache.pop(next(iter(self._flight_cache)))
             self._flight_cache[key] = result
+        desktop = {"status": "off"}
+        launch_id = str(time.time_ns())
+        result = self._flight_cache[key]
+        self._launch_playback = {"id": launch_id, "index": current["index"],
+                                 "end": result["ascent"][-1][0], "sequence": -1}
+        if self.show_openrocket:
+            from rocinante.openrocket_live import show_in_openrocket
+            try:
+                desktop = show_in_openrocket(flight_path, self.selection_path, self.openrocket_bounds,
+                    simulation={"request_id": launch_id, "torpedo_id": target,
+                                "revision": current["index"], "ascent_end": result["ascent"][-1][0]})
+            except Exception as exc:
+                logging.getLogger(__name__).exception("OpenRocket flight plot could not open")
+                desktop = {"status": "error", "message": str(exc)}
         return {"torpedo_id": target, "index": current["index"], "spec": spec.model_dump(mode="json"),
-                "simulation": self._flight_cache[key], "scene": "fictional-training-target"}
+                "simulation": result, "scene": "fictional-training-target",
+                "launch_id": launch_id, "openrocket_plot": desktop}
+
+    def launch_playback(self, payload: dict):
+        """A small, ordered clock feed; the browser's simulation clock is authoritative."""
+        import math
+        active = self._launch_playback
+        if not active or payload.get("launch_id") != active["id"]:
+            raise ValueError("This launch is no longer active")
+        elapsed, sequence = payload.get("time"), payload.get("sequence")
+        phase = payload.get("phase")
+        if (type(elapsed) not in (int, float) or not math.isfinite(elapsed)
+                or not 0 <= elapsed <= active["end"] + .01 or type(sequence) is not int
+                or phase not in {"ready", "flight", "impact", "complete", "cancelled"}):
+            raise ValueError("Invalid launch playback sample")
+        if sequence > active["sequence"]:
+            active["sequence"] = sequence
+            path = self.out / "openrocket-playback.properties"
+            temp = path.with_suffix(".tmp")
+            temp.write_text(f"launch_id={active['id']}\ntime={elapsed}\nphase={phase}\n")
+            temp.replace(path)
+        status = {"status": "pending"}
+        try:
+            reply = json.loads((self.out / "openrocket-selection-status.json").read_text())
+            if str(reply.get("request_id")) == active["id"]:
+                status = reply
+        except (OSError, ValueError):
+            pass
+        return status
 
     def decide(self, payload: dict):
         current = self.state["iterations"][-1]
@@ -583,6 +628,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 with workbench.lock:
                     if self.path == "/api/propose":
                         state = workbench.propose(payload)
+                    elif self.path == "/api/launch/playback":
+                        state = workbench.launch_playback(payload)
                     elif self.path == "/api/launch":
                         state = workbench.launch(payload)
                     elif self.path == "/api/select":

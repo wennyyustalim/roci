@@ -15,6 +15,10 @@ public class RocinanteAgent {
     private static Class<?> frameClass;
     private static Frame managedFrame;
     private static String loadedDigest = "";
+    private static javax.swing.JDialog launchPlot;
+    private static Object launchMarker;
+    private static String launchId = "";
+    private static String launchLabel = "";
 
     public static synchronized void agentmain(String path, Instrumentation inst) throws Exception {
         command = Paths.get(path);
@@ -46,7 +50,16 @@ public class RocinanteAgent {
                         }
                         previous = request;
                     }
-                    Thread.sleep(200);
+                    Path clockPath = current.resolveSibling("openrocket-playback.properties");
+                    if (Files.exists(clockPath)) {
+                        Properties clock = new Properties();
+                        try (var in = Files.newInputStream(clockPath)) { clock.load(in); }
+                        SwingUtilities.invokeAndWait(() -> {
+                            try { playback(clock); }
+                            catch (Exception error) { /* A closed plot must not stop document selection. */ }
+                        });
+                    }
+                    Thread.sleep(100);
                 } catch (InterruptedException done) { return; }
                 catch (Exception error) { try { Thread.sleep(500); } catch (InterruptedException done) { return; } }
             }
@@ -63,7 +76,9 @@ public class RocinanteAgent {
             for (int i = 0; i < args.length; i++) {
                 if (types[i].isPrimitive()) {
                     if (!(args[i] instanceof Boolean && types[i] == boolean.class) &&
-                        !(args[i] instanceof Integer && types[i] == int.class)) matches = false;
+                        !(args[i] instanceof Integer && types[i] == int.class) &&
+                        !(args[i] instanceof Double && types[i] == double.class) &&
+                        !(args[i] instanceof Float && types[i] == float.class)) matches = false;
                 } else if (args[i] != null && !types[i].isInstance(args[i])) matches = false;
             }
             if (matches) return method.invoke(target, args);
@@ -100,6 +115,9 @@ public class RocinanteAgent {
         }
         frameClass = managedFrame.getClass();
         Object panel = call(managedFrame, "getRocketPanel"), doc = call(panel, "getDocument");
+        boolean simulation = "simulation".equals(props.getProperty("action"));
+        if (launchPlot != null) { launchPlot.dispose(); launchPlot = null; }
+        launchMarker = null; launchId = "";
         String digest = props.getProperty("digest");
         if (!digest.equals(loadedDigest)) {
             if (!(Boolean) call(doc, "isSaved")) throw new IllegalStateException("Save your manual OpenRocket edits before switching torpedoes");
@@ -111,14 +129,85 @@ public class RocinanteAgent {
             finally { call(doc, "stopUndo"); }
             // Saved simulation results refer to the previous rocket shape.
             while ((Integer) call(doc, "getSimulationCount") > 0) call(doc, "removeSimulation", 0);
+            if (simulation) {
+                // Rebind the saved flight to this document's rocket, retaining
+                // the exact imported data (the desktop must not rerun the flight).
+                Object source = call(incoming, "getSimulation", 0);
+                Class<?> simClass = source.getClass();
+                Object imported = null;
+                for (var constructor : simClass.getConstructors()) if (constructor.getParameterCount() == 7) {
+                    imported = constructor.newInstance(doc, rocket, call(source, "getStatus"),
+                        call(source, "getName"), call(source, "getOptions"),
+                        call(source, "getSimulationExtensions"), call(source, "getSimulatedData"));
+                    break;
+                }
+                if (imported == null) throw new IllegalStateException("OpenRocket simulation import is unavailable");
+                call(imported, "setFlightConfigurationId", call(source, "getFlightConfigurationId"));
+                call(doc, "addSimulation", imported);
+            }
             call(doc, "setFile", file); call(doc, "setSaved", true);
             loadedDigest = digest;
         }
-        call(managedFrame, "selectTab", 0);
+        call(managedFrame, "selectTab", simulation ? frameClass.getField("SIMULATION_TAB").getInt(null) : 0);
         call(panel, "updateFigures"); fit(managedFrame);
         managedFrame.setTitle(props.getProperty("label", file.getName()) + " — OpenRocket");
         managedFrame.repaint();
+        if (simulation) showFlightPlot(doc, props);
         status(commandPath, props.getProperty("request_id"), "synced", "Updated existing OpenRocket window " + System.identityHashCode(managedFrame));
+    }
+
+    private static Class<?> nativeClass(String name) throws Exception {
+        return Class.forName(name, true, frameClass.getClassLoader());
+    }
+
+    private static Component chartPanel(Component component) {
+        for (Class<?> type = component.getClass(); type != null; type = type.getSuperclass())
+            if (type.getName().equals("org.jfree.chart.ChartPanel")) return component;
+        if (component instanceof Container) for (Component child : ((Container) component).getComponents()) {
+            Component found = chartPanel(child); if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static void showFlightPlot(Object doc, Properties props) throws Exception {
+        Object sim = call(doc, "getSimulation", 0);
+        if (!(Boolean) call(sim, "hasSimulationData")) throw new IllegalStateException("No saved flight data to plot");
+        Class<?> types = nativeClass("info.openrocket.core.simulation.FlightDataType");
+        Class<?> configs = nativeClass("info.openrocket.swing.gui.plot.SimulationPlotConfiguration");
+        Object config = configs.getConstructor(String.class, types).newInstance("Rocinante launch", types.getField("TYPE_TIME").get(null));
+        call(config, "addPlotDataType", types.getField("TYPE_ALTITUDE").get(null), 0);
+        call(config, "addPlotDataType", types.getField("TYPE_VELOCITY_TOTAL").get(null), 1);
+        Class<?> dialogs = nativeClass("info.openrocket.swing.gui.plot.SimulationPlotDialog");
+        launchPlot = (javax.swing.JDialog) dialogs.getMethod("getPlot", java.awt.Window.class, sim.getClass(), configs)
+            .invoke(null, managedFrame, sim, config);
+        if (launchPlot == null) throw new IllegalStateException("OpenRocket could not create the flight plot");
+        launchPlot.setModal(false);
+        launchPlot.setAutoRequestFocus(false);
+        launchPlot.setBounds(managedFrame.getBounds());
+        launchLabel = props.getProperty("label") + " — OpenRocket launch";
+        launchPlot.setTitle(launchLabel + " — Ready");
+        Component chart = chartPanel(launchPlot);
+        if (chart == null) throw new IllegalStateException("OpenRocket chart is unavailable");
+        Object plot = call(call(chart, "getChart"), "getXYPlot");
+        call(call(plot, "getDomainAxis"), "setRange", 0.0, Double.parseDouble(props.getProperty("ascent_end")) * 1.05);
+        launchMarker = nativeClass("org.jfree.chart.plot.ValueMarker").getConstructor(double.class).newInstance(0.0);
+        call(launchMarker, "setPaint", new java.awt.Color(255, 120, 70));
+        call(launchMarker, "setStroke", new java.awt.BasicStroke(2.5f));
+        call(launchMarker, "setLabel", "Ready · T+0.00 s");
+        call(plot, "addDomainMarker", launchMarker);
+        launchId = props.getProperty("launch_id");
+        launchPlot.setVisible(true);
+    }
+
+    private static void playback(Properties clock) throws Exception {
+        if (!launchId.equals(clock.getProperty("launch_id")) || launchPlot == null || !launchPlot.isDisplayable()) return;
+        double time = Double.parseDouble(clock.getProperty("time", "0"));
+        if (!Double.isFinite(time) || time < 0) return;
+        String phase = clock.getProperty("phase", "ready");
+        String label = String.format(java.util.Locale.ROOT, "T+%.2f s · %s", time, phase);
+        call(launchMarker, "setValue", time);
+        call(launchMarker, "setLabel", label);
+        launchPlot.setTitle(launchLabel + " — " + label);
     }
 
     private static String json(String text) {

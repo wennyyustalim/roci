@@ -122,3 +122,5 @@ body.presentation #scene-hint { left:42px; }
 #cancel-launch { margin-top:10px; padding:6px 10px; font-size:10px; }
 .training-target { position:absolute; transform:translate(-50%,-100%); pointer-events:none; color:#ffba8a; border-bottom:1px solid #ffab6977; padding:4px 7px; background:#07101ba8; font:9px/1.4 ui-monospace,monospace; letter-spacing:.6px; white-space:nowrap; }
 @media (max-width:760px) { #launch-hud { top:76px; right:12px; padding:10px 12px; width:275px; } #launch-hud h2 { font-size:16px; } #launch-caption { font-size:10px; } }
+
+#launch-desktop { color:var(--ok); font:10px/1.5 ui-monospace,monospace; margin:6px 0; }

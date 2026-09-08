@@ -52,7 +52,7 @@ def openrocket_pids(java: Path) -> list[int]:
             if "openrocket" in line.lower() or "com.install4j.runtime.launcher.MacLauncher" in line]
 
 
-def show_in_openrocket(path: Path, selection: Path, bounds=None) -> dict:
+def show_in_openrocket(path: Path, selection: Path, bounds=None, *, simulation=None) -> dict:
     java = java_tools()
     pids = openrocket_pids(java)
     if not pids:
@@ -66,12 +66,16 @@ def show_in_openrocket(path: Path, selection: Path, bounds=None) -> dict:
     if len(pids) != 1:
         raise RuntimeError("Expected one OpenRocket session; no existing window was changed")
     command = json.loads(selection.read_text())
+    if simulation is not None:
+        command = {**command, **simulation}
     jar = bridge_jar(selection.parent, java)
     props = selection.with_name(f"openrocket-selection-{jar.parent.name}.properties")
     content = (f"request_id={command['request_id']}\n"
                f"file={base64.b64encode(str(path.resolve()).encode()).decode()}\n"
                f"digest={hashlib.sha256(path.read_bytes()).hexdigest()}\n"
                f"label=Rocinante {command['torpedo_id'] or 'general torpedo'} v{command['revision']}\n")
+    if simulation is not None:
+        content += f"action=simulation\nlaunch_id={simulation['request_id']}\nascent_end={simulation['ascent_end']}\n"
     temp = props.with_suffix(".tmp")
     temp.write_text(content)
     temp.replace(props)

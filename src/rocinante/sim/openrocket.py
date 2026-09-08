@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,8 @@ from rocinante.spec import RocketSpec
 class OpenRocketSimulator:
     name = "openrocket"
 
-    def __init__(self, jar: str | None = None) -> None:
+    def __init__(self, jar: str | None = None, flight_path: Path | None = None) -> None:
+        self.flight_path = flight_path
         default = Path(__file__).resolve().parents[3] / "vendor/OpenRocket-23.09.jar"
         self.jar = Path(jar or os.getenv("OPENROCKET_JAR", str(default))).resolve()
 
@@ -44,6 +46,9 @@ class OpenRocketSimulator:
                 if "No module named 'orhelper'" in process.stderr:
                     raise SimulationError("Install the flight engine with uv sync --extra openrocket.")
                 raise SimulationError("OpenRocket could not fly this design. Check its motor and geometry.")
+            if self.flight_path is not None:
+                self.flight_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(result.with_suffix(".ork"), self.flight_path)
             return SimResult.model_validate_json(result.read_text())
 
     def close(self) -> None:
@@ -97,6 +102,20 @@ def _worker(jar: str, source: str, destination: str):
             warnings=[str(w) for w in flight.getWarningSet()], backend="openrocket",
             ascent=samples, source_sha256=hashlib.sha256(Path(source).read_bytes()).hexdigest(),
         )
+        # Persist the same simulated document, including every flight sample, for
+        # the desktop plot. Never ask the desktop engine to recompute another flight.
+        import zipfile
+        sim.setName("Rocinante launch · OpenRocket 23.09")
+        document.addSimulation(sim)
+        storage = instance.openrocket.document.StorageOptions()
+        storage.setSaveSimulationData(True)
+        stream = jpype.java.io.ByteArrayOutputStream()
+        instance.openrocket.file.openrocket.OpenRocketSaver().save(
+            stream, document, storage, instance.openrocket.logging.WarningSet(),
+            instance.openrocket.logging.ErrorSet(),
+        )
+        with zipfile.ZipFile(Path(destination).with_suffix(".ork"), "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("rocket.ork", bytes(stream.toByteArray()))
         Path(destination).write_text(result.model_dump_json())
 
 

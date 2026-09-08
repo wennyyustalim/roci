@@ -1,6 +1,6 @@
 const el=id=>document.getElementById(id);
 const setOptionalText=(id,value)=>{const node=el(id);if(node) node.textContent=value;};
-let launching=false, launchRequest=0;
+let launching=false, launchRequest=0, desktopClock=null;
 let state, scene, busy=false, pollTimer=null, selectedTorpedo=null, selectionVersion=0, selectionSync=Promise.resolve(), syncTimer=null;
 const fmt=(n,d=1)=>n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 async function api(path,payload) {
@@ -132,14 +132,27 @@ function launchBusy(on) {
   el("propose").disabled=on || busy;
   renderScope();
 }
+function desktopSample(phase,time,force=false) {
+  const clock=desktopClock;if(!clock) return;
+  clock.time=time;
+  const now=performance.now();
+  if(!force && (clock.busy || now-clock.sent<120)) return;
+  clock.sent=now;clock.busy=true;
+  api("launch/playback",{launch_id:clock.id,sequence:++clock.sequence,time,phase})
+    .then(status=>{if(desktopClock===clock && status.status==="error") el("launch-desktop").textContent=`OpenRocket plot: ${status.message}`;})
+    .catch(()=>{if(desktopClock===clock) el("launch-desktop").textContent="OpenRocket plot clock disconnected";})
+    .finally(()=>{clock.busy=false;});
+}
 function cancelLaunch() {
+  desktopSample("cancelled",desktopClock?.time || 0,true);desktopClock=null;
   ++launchRequest; scene?.cancelLaunch(); launchBusy(false);el("launch-hud").hidden=true;
 }
 el("launch").onclick=async()=>{
   if(launching || busy || !selectedTorpedo || !scene) return;
-  scene.cancelLaunch();
+  scene.cancelLaunch();desktopClock=null;
   const request=++launchRequest, target=selectedTorpedo, index=current().index;
   launchBusy(true);el("launch-hud").hidden=false;
+  el("launch-desktop").textContent="";
   el("launch-phase").textContent="Running OpenRocket…";
   el("launch-caption").textContent="Computing this torpedo’s atmospheric flight";
   el("launch-telemetry").hidden=true;el("flight-details").hidden=true;
@@ -152,6 +165,22 @@ el("launch").onclick=async()=>{
     const sim=data.simulation;
     el("flight-results").textContent=`OpenRocket 23.09 · ${data.spec.motor.designation} · Apogee ${fmt(sim.apogee_m)} m · Max speed ${fmt(sim.max_velocity_ms)} m/s · Initial stability ${fmt(sim.stability_margin_cal,2)} cal`;
     el("flight-warnings").textContent=sim.warnings.length ? `OpenRocket warnings: ${sim.warnings.join(" · ")}` : "No OpenRocket warnings.";
+    if(data.openrocket_plot?.status==="pending") {
+      const clock={id:data.launch_id,sequence:0,time:0,sent:0,busy:false};desktopClock=clock;
+      el("launch-desktop").textContent="Opening flight plot in OpenRocket…";
+      for(let attempt=0;attempt<40;attempt++) {
+        if(request!==launchRequest) return;
+        const status=await api("launch/playback",{launch_id:clock.id,sequence:++clock.sequence,time:0,phase:"ready"});
+        if(request!==launchRequest) return;
+        if(status.status!=="pending") {
+          el("launch-desktop").textContent=status.status==="synced" ? "OpenRocket plot connected · live time cursor" : `OpenRocket plot: ${status.message}`;
+          break;
+        }
+        if(attempt===39) el("launch-desktop").textContent="OpenRocket plot is still opening";
+        await new Promise(resolve=>setTimeout(resolve,200));
+      }
+    } else if(data.openrocket_plot?.status==="error") el("launch-desktop").textContent=`OpenRocket plot: ${data.openrocket_plot.message}`;
+    if(request!==launchRequest) return;
     scene.launch(data);
   } catch(error) {
     if(request!==launchRequest) return;
@@ -171,12 +200,13 @@ el("canvas").addEventListener("launchchange",({detail:d})=>{
     el("launch-caption").textContent=`OpenRocket ascent · ${fmt(d.rate,2)}× playback · fictional target`;
   }
   if(d.phase==="telemetry") {
+    desktopSample("flight",d.time);
     el("launch-time").textContent=`T+ ${fmt(d.time,2)} s`;
     el("launch-speed").textContent=`${fmt(d.speed)} m/s · ${d.thrust>.05 ? "BURN" : "COAST"}`;
     el("launch-range").textContent=`${fmt(d.range)} m to target`;
   }
-  if(d.phase==="impact") el("launch-range").textContent="CONTACT";
-  if(d.phase==="complete") {launchBusy(false);el("cancel-launch").textContent="Back to workshop";}
+  if(d.phase==="impact") {el("launch-range").textContent="CONTACT";desktopSample("impact",desktopClock?.time || 0,true);}
+  if(d.phase==="complete") {desktopSample("complete",desktopClock?.time || 0,true);launchBusy(false);el("cancel-launch").textContent="Back to workshop";}
 });
 
 el("canvas").addEventListener("modelselect",event=>selectModel(event.detail));
