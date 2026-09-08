@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Deliberately schematic. Part IDs match the Blender exporter and structured diff.
 function ship(spec, changed, ghost) {
@@ -32,20 +33,89 @@ function ship(spec, changed, ghost) {
 }
 
 export function createScene(container) {
-  const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(38,1,.1,2000);
+  const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(38,1,.01,2000);
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-  renderer.setPixelRatio(Math.min(devicePixelRatio,2)); container.append(renderer.domElement);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure=1.1;
+  container.append(renderer.domElement);
   const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.6;
   scene.add(new THREE.HemisphereLight(0xc8e5ff,0x202d43,2.6));
   const light=new THREE.DirectionalLight(0xffffff,3); light.position.set(50,90,70); scene.add(light);
   const models=new THREE.Group(); scene.add(models);
+  const gltf=new GLTFLoader(), glbCache=new Map();
+  let loadRequest=0;
+
+  // Blender writes the semantic part tag as a glTF extra. Keep the name
+  // fallback for an export made without extras, or for an older artifact.
+  function partOf(object) {
+    for(let node=object;node;node=node.parent) {
+      if(node.userData?.rocinante_part) return node.userData.rocinante_part;
+      if(node.name) return node.name.replace(/\.\d+$/,"");
+    }
+    return "";
+  }
+  const matches=(name,patterns)=>patterns.some(pattern=>
+    pattern.endsWith("*") ? name.startsWith(pattern.slice(0,-1)) : name===pattern);
+
+  function paintExport(root,{ghost,changed}) {
+    root.traverse(object=> {
+      if(!object.isMesh) return;
+      const changedPart=!ghost && matches(partOf(object),changed);
+      if(!ghost && !changedPart) return; // Preserve Blender's authored materials.
+      object.material=new THREE.MeshStandardMaterial({
+        color:ghost ? 0x5b6472 : 0xff7855,
+        roughness:ghost ? .9 : .45, metalness:ghost ? 0 : .18,
+        transparent:ghost, opacity:ghost ? .22 : 1, depthWrite:!ghost,
+        emissive:changedPart ? 0xff7855 : 0x000000,
+        emissiveIntensity:changedPart ? .22 : 0,
+      });
+      object.userData.rocinantePreviewMaterial=true;
+    });
+  }
+
+  function dispose(root) {
+    const primitive=root.userData.rocinantePrimitive;
+    root.traverse(object=> {
+      if(!object.isMesh) return;
+      if(primitive) object.geometry.dispose();
+      if(primitive || object.userData.rocinantePreviewMaterial) {
+        for(const material of Array.isArray(object.material) ? object.material : [object.material]) material?.dispose();
+      }
+    });
+  }
+  function clearModels() {
+    for(const child of [...models.children]) { dispose(child); models.remove(child); }
+  }
+  function artifactSource(artifact) {
+    const file=artifact?.file;
+    if(typeof file!=="string" || !/^exports\/v\d+\/(before|after)\.glb$/.test(file)) return null;
+    // A retry can overwrite the same artifact path. Keep the parsed scene
+    // keyed to its immutable digest rather than reusing stale geometry.
+    return {url:`/${file}`,key:`${file}:${artifact.sha256 || "unverified"}`};
+  }
+  async function loadGlb(source) {
+    if(!glbCache.has(source.key)) glbCache.set(source.key,gltf.loadAsync(source.url).then(result=>result.scene));
+    try { return (await glbCache.get(source.key)).clone(true); }
+    catch(error) { glbCache.delete(source.key); throw error; }
+  }
+  function showFallback(message) {
+    const notice=document.getElementById("scene-error");
+    notice.hidden=!message;
+    notice.textContent=message || "";
+  }
   function fit() {
     const box=new THREE.Box3().setFromObject(models); if(box.isEmpty()) return;
     const sphere=box.getBoundingSphere(new THREE.Sphere());
     const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
     const distance=sphere.radius/Math.sin(fov/2)*1.3;
-    camera.position.copy(sphere.center).addScaledVector(new THREE.Vector3(.7,.25,1).normalize(),distance);
-    camera.far=distance*10; camera.updateProjectionMatrix(); controls.target.copy(sphere.center); controls.update();
+    const direction=models.userData.rocinanteGlb
+      ? new THREE.Vector3(.7,.25,-1) // Blender export: Z-up, tubes face -Z.
+      : new THREE.Vector3(.7,.25,1); // Schematic preview: long axis is Y.
+    camera.position.copy(sphere.center).addScaledVector(direction.normalize(),distance);
+    camera.near=Math.max(distance/1000,.01); camera.far=Math.max(distance*10,100); camera.updateProjectionMatrix();
+    controls.target.copy(sphere.center); controls.update();
   }
   new ResizeObserver(() => {
     const {clientWidth:w,clientHeight:h}=container; renderer.setSize(w,h); camera.aspect=w/Math.max(h,1); camera.updateProjectionMatrix(); fit();
@@ -53,11 +123,40 @@ export function createScene(container) {
   renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene,camera); });
   return {
     fit,
-    update(current,previous,{ghost,highlight,rotate}) {
-      models.traverse(obj=> { if(obj.isMesh) {obj.geometry.dispose(); obj.material.dispose();} }); models.clear();
-      models.add(ship(current.spec,highlight ? current.changed_parts : [],false));
-      if(previous && ghost) models.add(ship(previous.spec,[],true));
-      controls.autoRotate=rotate; fit();
+    async update(current,previous,{ghost,highlight,rotate}) {
+      const request=++loadRequest;
+      controls.autoRotate=rotate;
+      const artifacts=current.handoff?.artifacts;
+      const afterSource=artifactSource(artifacts?.after), beforeSource=ghost && previous ? artifactSource(artifacts?.before) : null;
+
+      // An exported pair always belongs to this revision and its recorded
+      // accepted parent, so it is the authoritative comparison when present.
+      if(afterSource) {
+        try {
+          const [after,before]=await Promise.all([loadGlb(afterSource),beforeSource ? loadGlb(beforeSource) : null]);
+          if(request!==loadRequest) return;
+          clearModels();
+          models.userData.rocinanteGlb=true;
+          if(before) { paintExport(before,{ghost:true,changed:[]}); models.add(before); }
+          paintExport(after,{ghost:false,changed:highlight ? current.changed_parts ?? [] : []}); models.add(after);
+          showFallback(""); fit(); return;
+        } catch(error) {
+          if(request!==loadRequest) return;
+          console.warn("Unable to load exported GLB; using schematic preview.",error);
+          showFallback("Exported geometry could not be loaded. Showing the schematic preview.");
+        }
+      } else if(request===loadRequest) showFallback("");
+
+      if(request!==loadRequest) return;
+      clearModels();
+      models.userData.rocinanteGlb=false;
+      const after=ship(current.spec,highlight ? current.changed_parts ?? [] : [],false);
+      after.userData.rocinantePrimitive=true; models.add(after);
+      if(previous && ghost) {
+        const before=ship(previous.spec,[],true);
+        before.userData.rocinantePrimitive=true; models.add(before);
+      }
+      fit();
     },
   };
 }

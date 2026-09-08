@@ -11,7 +11,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-from rocinante.agent.refit import RefitAgent, RefitResult
+from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
 from rocinante.diff import diff_ships
 from rocinante.flight import plan
 from rocinante.handoff import export_pair, share_url, verified_pair
@@ -96,6 +96,7 @@ class Workbench:
 
     def snapshot(self):
         return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS,
+                "model": model_name() if self.live else None,
                 "kord_base": KordClient().base_url}
 
     def revision(self, payload: dict):
@@ -170,6 +171,8 @@ class Workbench:
         index = len(self.state["iterations"])
         entry = self.entry(after, index, "pending", result)
         entry.update(parent=parent, ask=ask, source="live" if self.live else "fixture")
+        if self.live:
+            entry["model"] = model_name()
         self.state["iterations"].append(entry)
         self.save()
         return self.snapshot()
@@ -248,6 +251,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 else:
                     return self.reply(404, {"error": "Not found"})
                 self.reply(200, state)
+            except RefitModelError as exc:
+                self.reply(502, {"error": f"{exc}. The accepted design is preserved."})
             except (ValueError, TypeError) as exc:
                 self.reply(400, {"error": str(exc)})
             except Exception:
