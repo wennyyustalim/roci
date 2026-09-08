@@ -18,10 +18,19 @@
   </header>
 
   <div id="deck-detail" hidden><span class="eyebrow" id="deck-number"></span><h2 id="deck-title"></h2><p id="deck-description"></p><span id="deck-crew"></span><button id="all-decks" class="quiet" type="button">← All decks</button></div>
+  <div id="launch-hud" hidden aria-label="Torpedo training launch">
+    <span class="eyebrow">TORPEDO / TRAINING EXERCISE</span>
+    <h2 id="launch-phase" role="status" aria-live="polite"></h2>
+    <p id="launch-caption">OpenRocket atmospheric ascent · fictional target in space</p>
+    <div id="launch-telemetry"><span id="launch-time">T+ 0.00 s</span><span id="launch-speed">0 m/s</span><span id="launch-range">Target acquiring</span></div>
+    <details id="flight-details"><summary>Flight results</summary><p id="flight-results"></p><p id="flight-warnings"></p></details>
+    <button id="cancel-launch" class="quiet" type="button">Cancel launch</button>
+  </div>
   <aside class="panel">
     <form id="proposal">
       <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
       <p id="workshop-scope" class="form-intro">Select a loaded torpedo to edit it.</p>
+      <button id="launch" type="button" hidden>Launch torpedo ↗</button>
       <button id="clear-selection" class="quiet" type="button" hidden>← All torpedoes</button>
       <select id="preset" aria-label="Fixture refit" hidden></select>
       <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>

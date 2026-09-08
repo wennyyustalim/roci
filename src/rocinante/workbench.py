@@ -142,6 +142,7 @@ class Workbench:
         blender_geometry: list[str] | None = None,
         openrocket_bounds: Bounds | None = None,
     ):
+        self._flight_cache = {}
         self.out = out
         self.live = live
         self.torpedo_only = torpedo_only
@@ -447,6 +448,25 @@ class Workbench:
             except Exception:
                 logging.getLogger(__name__).exception("Background Kord share failed")
 
+    def launch(self, payload: dict):
+        """Preview the accepted round without consuming ammunition or creating a revision."""
+        from rocinante.sim.openrocket import OpenRocketSimulator
+        current = self.state["iterations"][self.state["accepted"]]
+        target = self.validate_target(payload.get("torpedo_id"), current)
+        if target is None:
+            raise ValueError("Select a torpedo before launching")
+        if payload.get("index") != current["index"]:
+            raise ValueError("The ship revision changed. Select the torpedo again.")
+        spec = self.target_ship(current, target).torpedo
+        key = spec.model_dump_json()
+        if key not in self._flight_cache:
+            result = OpenRocketSimulator().run(spec).model_dump(mode="json")
+            if len(self._flight_cache) >= 16:
+                self._flight_cache.pop(next(iter(self._flight_cache)))
+            self._flight_cache[key] = result
+        return {"torpedo_id": target, "index": current["index"], "spec": spec.model_dump(mode="json"),
+                "simulation": self._flight_cache[key], "scene": "fictional-training-target"}
+
     def decide(self, payload: dict):
         current = self.state["iterations"][-1]
         verdict = payload.get("verdict")
@@ -464,6 +484,7 @@ class Workbench:
 
 
 def make_server(workbench: Workbench, port: int) -> HTTPServer:
+    from rocinante.sim.base import SimulationError
     web = Path(__file__).resolve().parents[2] / "web"
 
     class Handler(BaseHTTPRequestHandler):
@@ -499,6 +520,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                       "/loop.css": ("loop.css", "text/css"),
                       "/primitives.js": ("primitives.js", "text/javascript"),
                       "/assembly.js": ("assembly.js", "text/javascript"),
+                      "/torpedo.js": ("torpedo.js", "text/javascript"),
+                      "/launch.js": ("launch.js", "text/javascript"),
                       "/rocinante.glb": ("rocinante.glb", "model/gltf-binary"),
                       "/interior-references": ("interior-references.html", "text/html; charset=utf-8")}
             if self.path not in assets:
@@ -523,6 +546,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 with workbench.lock:
                     if self.path == "/api/propose":
                         state = workbench.propose(payload)
+                    elif self.path == "/api/launch":
+                        state = workbench.launch(payload)
                     elif self.path == "/api/select":
                         state = workbench.select(payload)
                     elif self.path == "/api/decide":
@@ -534,6 +559,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                     else:
                         return self.reply(404, {"error": "Not found"})
                 self.reply(200, state)
+            except SimulationError as exc:
+                self.reply(422, {"error": str(exc)})
             except RefitModelError as exc:
                 self.reply(502, {"error": f"{exc}. The accepted design is preserved."})
             except (ValueError, TypeError) as exc:

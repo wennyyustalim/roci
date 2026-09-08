@@ -111,3 +111,14 @@ body.presentation #scene-hint { left:42px; }
 }
 
 #selection-sync { margin:0; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+
+#launch { border-color:#ffc88966; background:linear-gradient(115deg,#ffc376,#ff7855); letter-spacing:.4px; }
+#launch-hud { position:fixed; top:100px; right:26px; width:330px; max-width:calc(100vw - 32px); z-index:4; padding:16px 18px; background:#09121deb; border:1px solid #ffbd6b55; border-radius:10px; backdrop-filter:blur(12px); }
+#launch-hud h2 { margin:5px 0; font-size:20px; font-weight:500; }
+#launch-caption, #flight-details p { color:var(--muted); font-size:11px; margin:5px 0 10px; }
+#launch-telemetry { display:flex; flex-wrap:wrap; gap:7px 15px; color:#ffd6a0; font:11px/1.7 ui-monospace,monospace; }
+#flight-details { color:var(--muted); font-size:10px; margin-top:10px; }
+#flight-details summary { cursor:pointer; }
+#cancel-launch { margin-top:10px; padding:6px 10px; font-size:10px; }
+.training-target { position:absolute; transform:translate(-50%,-100%); pointer-events:none; color:#ffba8a; border-bottom:1px solid #ffab6977; padding:4px 7px; background:#07101ba8; font:9px/1.4 ui-monospace,monospace; letter-spacing:.6px; white-space:nowrap; }
+@media (max-width:760px) { #launch-hud { top:76px; right:12px; padding:10px 12px; width:275px; } #launch-hud h2 { font-size:16px; } #launch-caption { font-size:10px; } }

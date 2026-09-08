@@ -156,6 +156,6 @@ export function createAssembly(models, camera, controls, container) {
       if(visible) {l.element.style.left=`${(point.x*.5+.5)*width}px`;l.element.style.top=`${(-point.y*.5+.5)*height}px`;}
     }
   }
-  return {bind,expand,focus,frame,tick,pick,selectable,moveCamera,get movingCamera(){return !!cameraMove;},
+  return {bind,expand,focus,frame,tick,pick,selectable,moveCamera,get movingCamera(){return !!cameraMove;},get moving(){return amount!==target;},
     suspend(){cameraMove=null;suspended=true;focusIndex=null;focusObject=null;applyVisibility();emit();},get expanded(){return target>0;},get ready(){return decks.length>0;}};
 }

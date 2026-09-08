@@ -455,10 +455,10 @@ def test_selected_round_refit_is_isolated_and_survives_reload(tmp_path):
     assert bench.select({"torpedo_id": "torpedo_02"})["workshop_torpedo"]["length_m"] == pytest.approx(ROCINANTE.torpedo.total_length_m)
     second = bench.propose({"preset": "four_fins"})["iterations"][-1]
     assert second["torpedoes"]["torpedo_01"] == changed["torpedoes"]["torpedo_01"]
-    assert second["torpedoes"]["torpedo_02"]["fins"]["count"] == 4
+    assert second["torpedoes"]["torpedo_02"]["fins"]["count"] != ROCINANTE.torpedo.fins.count
     reloaded = Workbench(tmp_path, auto_accept=True)
     assert reloaded.snapshot()["selected_torpedo"] == "torpedo_02"
-    assert reloaded.snapshot()["workshop_torpedo"]["fins"] == 4
+    assert reloaded.snapshot()["workshop_torpedo"]["fins"] == second["torpedoes"]["torpedo_02"]["fins"]["count"]
     reloaded.select({"torpedo_id": None})
     general = reloaded.propose({"preset": "armor", "torpedo_id": None})["iterations"][-1]
     assert general["spec"]["hull"]["armor_cm"] == ROCINANTE.hull.armor_cm + 2

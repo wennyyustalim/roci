@@ -4,12 +4,11 @@
     ---------+-----------
     Blender  | Kord
 
-Blender watches a spec file and rebuilds itself. OpenRocket has no such hook,
-so the workbench writes one `.ork` per revision and opens it; each open lands
-a new window on top of the last at the same spot. Kord is a Chrome window the
-workbench points at the newest comparison link. Nothing here clicks inside
-another app: an earlier attempt to close OpenRocket windows through the
-accessibility tree hit a content button instead and wedged the app.
+Blender watches the ship spec and selection files in its persistent session.
+The document bridge in openrocket_live.py updates OpenRocket's existing
+workshop document on Swing's event thread. This module opens the application
+only when needed and handles its initial layout. Kord's Chrome window follows
+the newest comparison link.
 
 OPENROCKET IS NOT PLACED THROUGH SYSTEM EVENTS, and cannot be. It is a Swing
 app, and Swing publishes no windows to the macOS accessibility API: with the

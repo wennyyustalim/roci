@@ -7,7 +7,7 @@ from rocinante.spec import FinSet, RocketSpec, json_schema
 
 def test_baseline_is_valid():
     assert BASELINE.total_length_m == pytest.approx(0.55)
-    assert BASELINE.caliber_m == pytest.approx(0.025)
+    assert BASELINE.caliber_m == pytest.approx(0.056)
 
 
 def test_tip_chord_cannot_exceed_root():

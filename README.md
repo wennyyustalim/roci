@@ -15,7 +15,7 @@ comparison is uploaded in the background.
 Kord is a separate, pre-existing product reached over HTTP. The current
 presentation focuses on torpedo geometry and motor configuration. The repo
 also contains ship refit and computed mission tooling; automated torpedo
-flight simulation remains unimplemented.
+flight playback now runs through OpenRocket 23.09.
 
 ## How it works
 
@@ -43,7 +43,7 @@ alone changes geometry without changing thrust or exhaust velocity.
 | `blend/` | Parametric mesh generation and GLB export. |
 | `diff.py` | Structured input changes and affected ship parts. |
 | `flight/` | Closed-form constant-acceleration transfer calculations. |
-| `sim/` | OpenRocket and RocketPy backend stubs. |
+| `sim/` | OpenRocket flight engine and a RocketPy backend stub. |
 | `kord/` | HTTP client for comparisons and separate review APIs. |
 | `web/` | Ship scene, torpedo workshop, revision details and propagation status. |
 
@@ -53,7 +53,7 @@ Install Python 3.11+, `uv`, Blender, and the OpenRocket desktop application.
 The full presentation uses macOS window placement. Then:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra openrocket
 cp .env.example .env   # first setup only; preserve an existing .env
 # Set OPENAI_API_KEY and the intended KORD_API_BASE in .env.
 bin/roci demo --live --out out/demo-minute
@@ -78,9 +78,13 @@ For a demo started with a custom port, pass the same port to `kill --port`.
 
 A torpedo request updates the design file in OpenRocket and automatically
 shares the previous/revised `.ork` pair with Kord. The Kord browser follows
-the saved comparison link. Select the target torpedo first in builds that
-expose individual torpedo selection. Use the prompt in [DEMO.md](DEMO.md)
-for the one-minute presentation.
+the saved comparison link. Click an amber-marked loaded torpedo to select it:
+refits apply only to that round, and Blender and OpenRocket focus its design
+in their running sessions. Clear selection or reset the view for a general
+refit. Torpedoes retain their physical dimensions; the camera zooms to them.
+The OpenRocket document bridge requires a JDK (the demo discovers Homebrew
+OpenJDK or `JAVA_HOME`) and preserves manual unsaved OpenRocket edits.
+Use the prompt in [DEMO.md](DEMO.md) for the one-minute presentation.
 
 The Kord destination is `--kord`, then `KORD_API_BASE`, then
 `https://work.withkord.com`. When using local Kord, start its supporting
@@ -123,9 +127,8 @@ uv run --env-file .env rocinante share a.glb b.glb
 ```
 
 The separate `refit` command supports ship proposals and GLB comparisons.
-It is not the one-minute torpedo script. `simulate` cannot provide real
-flight results while the backends remain stubs. Installing optional
-`openrocket` or `rocketpy` dependencies does not implement those backends.
+It is not the one-minute torpedo script. `simulate` uses the OpenRocket backend with the optional `openrocket` dependencies,
+a JDK, and `vendor/OpenRocket-23.09.jar` (or `OPENROCKET_JAR`). RocketPy remains a stub.
 The local `.ork` reader imports geometry but currently defaults motor and
 recovery settings; use the saved JSON spec to preserve a complete design.
 
@@ -133,6 +136,19 @@ recovery settings; use the saved JSON spec to preserve a complete design.
 standalone viewer; its numbers are hand-authored. Current ship endurance is
 a conservative initial-wet-mass estimate. Tank/magazine packaging,
 variable-mass mission solving, and combat simulation are not demonstrated.
+
+Select a loaded torpedo in the web viewer and press **Launch torpedo**. The
+camera pulls back, the ship assembles, and the selected round launches from its
+tube. The camera widens with the flight while keeping the Roci in view. A moving
+training drone crosses the sampled ascent and breaks apart on contact. Repeat
+launches reuse the computed flight; Reset view or Cancel launch restores the round.
+
+Flight data comes from the accepted torpedo's exported `.ork`, including any
+individual refit, simulated in an isolated OpenRocket JVM. The viewer shows actual
+position, speed and thrust samples at a labeled playback rate. These are atmospheric
+model-rocket results translated into the space scene, not vacuum flight or guided
+combat physics. The target and explosion are staged. OpenRocket warnings appear
+under Flight results; launches do not consume ammunition or change the design.
 
 ## What was built when
 
@@ -169,7 +185,7 @@ rendering (`web/`).
 part of this project required a change to it — see [DEMO.md](DEMO.md) for the current
 anonymous comparison workflow. Authenticated review remains separate scope.
 
-Still stubbed: both torpedo simulator backends.
+Still stubbed: the RocketPy torpedo simulator backend.
 
 ## Tests
 

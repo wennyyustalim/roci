@@ -1,5 +1,6 @@
 const el=id=>document.getElementById(id);
 const setOptionalText=(id,value)=>{const node=el(id);if(node) node.textContent=value;};
+let launching=false, launchRequest=0;
 let state, scene, busy=false, pollTimer=null, selectedTorpedo=null, selectionVersion=0, selectionSync=Promise.resolve(), syncTimer=null;
 const fmt=(n,d=1)=>n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 async function api(path,payload) {
@@ -19,7 +20,7 @@ const current=()=>state.iterations[state.accepted];
 const inFlight=it=>["exporting","sharing"].includes(it.handoff?.status) || (state.auto_share && it.handoff?.status==="exported");
 
 async function renderScene() {
-  if(!scene || !state) return;
+  if(!scene || !state || launching) return;
   const it=current(), prev=state.iterations[it.parent];
   const source=await scene.update(it,prev,{ghost:el("ghost").checked,highlight:el("highlight").checked});
   if(source==="demo") el("geometry-source").textContent="Detailed ship model"; else if(source==="export") el("geometry-source").textContent="Blender export"; else if(source==="schematic") el("geometry-source").textContent="Schematic · no export yet";
@@ -43,7 +44,7 @@ function render() {
   renderScope();
   el("preset").hidden=state.mode!=="fixture"; el("ask").hidden=state.mode!=="live"; el("samples").hidden=state.mode!=="live";
   el("propose").textContent=state.mode==="live" ? "Ask Astra →" : "Run fixture →";
-  el("propose").disabled=busy;
+  el("propose").disabled=busy || launching;
   el("title").textContent=`${it.name} · v${it.index}`;
   el("comparison").textContent=prev ? `${it.ask}` : "Salvaged Martian gunship · home to the crew";
   el("rationale").textContent=prev ? it.rationale : "";
@@ -71,12 +72,14 @@ function render() {
 }
 
 async function propose() {
-  if(busy) return;
+  if(busy || launching) return;
+  const request={preset:el("preset").value,ask:el("ask").value,torpedo_id:selectedTorpedo};
+  const pendingSelection=selectionSync;
   busy=true; render();
   el("status").textContent=state.mode==="live" ? "Astra is designing the refit. Every number you see next is computed from the spec it returns." : "Applying the fixture preset…";
   try {
-    await selectionSync;
-    state=await api("propose",{preset:el("preset").value,ask:el("ask").value,torpedo_id:selectedTorpedo});
+    await pendingSelection;
+    state=await api("propose",request);
     const it=current();
     el("status").textContent=`v${it.index} is the ship now. Blender ${it.geometry_changed_parts?.length ? "rebuilt the hull" : "kept the hull"}; ${it.torpedo?.changed ? "OpenRocket has the new torpedo" : "the torpedo is unchanged"}.`;
   } catch(error) { el("status").textContent=error.message; }
@@ -84,6 +87,9 @@ async function propose() {
 }
 
 function renderScope() {
+  el("launch").hidden=!selectedTorpedo;
+  el("launch").disabled=busy || launching || !scene;
+  el("launch").textContent=launching ? "Launch in progress…" : "Launch torpedo ↗";
   const workshop=selectedTorpedo ? `${selectedTorpedo.replace("torpedo_","Torpedo ")} workshop` : "General workshop";
   el("workshop-title").textContent=state.mode==="fixture" ? `${workshop} · Fixture` : `${workshop} · ${state.model}`;
   setOptionalText("workshop-scope",selectedTorpedo ? "Refits apply only to this loaded torpedo." : "No torpedo selected · general refit");
@@ -99,6 +105,7 @@ function syncStatus(snapshot) {
     `${app==="blender" ? "Blender" : "OpenRocket"}: ${result.status==="synced" ? "in sync" : result.status==="error" ? result.message : "focusing…"}`).join(" · "));
 }
 function selectTorpedo(id) {
+  if(launching) return;
   if(selectedTorpedo===id) return;
   selectedTorpedo=id; const version=++selectionVersion;
   renderScope(); el("propose").disabled=true; setOptionalText("selection-sync","Syncing selection…");
@@ -119,6 +126,58 @@ function selectTorpedo(id) {
   // Keep a rejected selection pending for submission, without an unhandled rejection.
   selectionSync.catch(()=>{});
 }
+function launchBusy(on) {
+  launching=on;
+  for(const id of ["ghost","highlight","rotate","presentation","clear-selection"]) el(id).disabled=on;
+  el("propose").disabled=on || busy;
+  renderScope();
+}
+function cancelLaunch() {
+  ++launchRequest; scene?.cancelLaunch(); launchBusy(false);el("launch-hud").hidden=true;
+}
+el("launch").onclick=async()=>{
+  if(launching || busy || !selectedTorpedo || !scene) return;
+  scene.cancelLaunch();
+  const request=++launchRequest, target=selectedTorpedo, index=current().index;
+  launchBusy(true);el("launch-hud").hidden=false;
+  el("launch-phase").textContent="Running OpenRocket…";
+  el("launch-caption").textContent="Computing this torpedo’s atmospheric flight";
+  el("launch-telemetry").hidden=true;el("flight-details").hidden=true;
+  el("cancel-launch").textContent="Cancel launch";
+  try {
+    await selectionSync;
+    const data=await api("launch",{torpedo_id:target,index});
+    if(request!==launchRequest) return;
+    el("flight-details").hidden=false;
+    const sim=data.simulation;
+    el("flight-results").textContent=`OpenRocket 23.09 · ${data.spec.motor.designation} · Apogee ${fmt(sim.apogee_m)} m · Max speed ${fmt(sim.max_velocity_ms)} m/s · Initial stability ${fmt(sim.stability_margin_cal,2)} cal`;
+    el("flight-warnings").textContent=sim.warnings.length ? `OpenRocket warnings: ${sim.warnings.join(" · ")}` : "No OpenRocket warnings.";
+    scene.launch(data);
+  } catch(error) {
+    if(request!==launchRequest) return;
+    launchBusy(false);el("launch-phase").textContent="Launch unavailable";
+    el("launch-caption").textContent=error.message;el("cancel-launch").textContent="Close";
+  }
+};
+el("cancel-launch").onclick=cancelLaunch;
+el("canvas").addEventListener("launchchange",({detail:d})=>{
+  if(d.phase==="idle") {launchBusy(false);el("launch-hud").hidden=true;return;}
+  const phases={pullback:"Pulling back to the Roci",assembling:"Assembling the ship",tracking:"Acquiring moving target",flight:"Torpedo away",impact:"Target destroyed",complete:"Training run complete"};
+  if(phases[d.phase]) el("launch-phase").textContent=phases[d.phase];
+  if(d.phase==="pullback") el("launch-caption").textContent="OpenRocket atmospheric ascent · fictional target in space";
+  if(d.phase==="flight") {
+    el("launch-telemetry").hidden=false;
+    el("launch-caption").textContent=`OpenRocket ascent · ${fmt(d.rate,2)}× playback · fictional target`;
+  }
+  if(d.phase==="telemetry") {
+    el("launch-time").textContent=`T+ ${fmt(d.time,2)} s`;
+    el("launch-speed").textContent=`${fmt(d.speed)} m/s · ${d.thrust>.05 ? "BURN" : "COAST"}`;
+    el("launch-range").textContent=`${fmt(d.range)} m to target`;
+  }
+  if(d.phase==="impact") el("launch-range").textContent="CONTACT";
+  if(d.phase==="complete") {launchBusy(false);el("cancel-launch").textContent="Back to workshop";}
+});
+
 el("canvas").addEventListener("torpedoselect",event=>selectTorpedo(event.detail.torpedo_id));
 el("clear-selection")?.addEventListener("click",()=>scene?.reset());
 
@@ -151,7 +210,7 @@ el("presentation").onclick=()=>{
   requestAnimationFrame(()=>scene?.fit());
 };
 el("rotate").onchange=()=>scene?.setRotate(el("rotate").checked);
-el("fit").onclick=()=>scene?.reset();
+el("fit").onclick=()=>{cancelLaunch();scene?.reset();};
 try {
   state=await api("state"); selectedTorpedo=state.selected_torpedo || null;
   for(const [value,label] of Object.entries(state.presets)) {const option=document.createElement("option");option.value=value;option.textContent=label;el("preset").append(option);}
@@ -160,5 +219,5 @@ try {
   el("status").textContent="Explore the ship";
   render();
 } catch(error) {el("status").textContent=`Unable to load the ship: ${error.message}`;el("propose").disabled=true;}
-try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));await renderScene();if(selectedTorpedo) scene.selectTorpedo(selectedTorpedo,false);}
+try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));await renderScene();if(selectedTorpedo) scene.selectTorpedo(selectedTorpedo,false);renderScope();}
 catch(error) {el("scene-error").hidden=false;el("scene-error").textContent="3D view unavailable. Check WebGL and access to cdn.jsdelivr.net. The panel still works.";console.error(error);}

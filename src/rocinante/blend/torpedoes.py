@@ -4,6 +4,79 @@ from build_rocket import build_fins, build_nose, build_tube
 from mathutils import Vector
 
 
+def _material(name, color, metallic=0.5, roughness=0.3):
+    material = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    material.diffuse_color = (*color, 1)
+    material.use_nodes = True
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (*color, 1)
+    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value = roughness
+    return material
+
+
+def _detail(obj, ident, origin, material):
+    obj.location += origin
+    obj["rocinante_part"] = ident
+    obj["assembly_kind"] = "torpedo"
+    obj["torpedo_id"] = ident
+    obj.name = f"{ident}_{obj.name}"
+    obj.data.materials.append(material)
+    return obj
+
+
+def _cylinder(name, radius, depth, z, material, origin, ident, vertices=32):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius, depth=depth, location=(0, 0, z))
+    return _detail(bpy.context.active_object, ident, origin, material)
+
+
+def _torpedo_hardware(rocket, origin, ident):
+    """Add readable ordnance hardware around the otherwise aerodynamic core."""
+    body = rocket["body"]
+    radius = body[-1]["outer_radius_m"]
+    nose_len = rocket["nose"]["length_m"]
+    total_body = sum(section["length_m"] for section in body)
+    body_center = -nose_len / 2
+    aft = body_center - total_body / 2
+    dark = _material("torpedo_seams", (0.025, 0.04, 0.05), .5, .35)
+    steel = _material("torpedo_hardware", (0.48, 0.55, 0.57), .85, .2)
+    amber = _material("torpedo_ident", (0.95, 0.34, 0.05), .35, .32)
+    # Nose lock and seeker collar make the front unmistakable at a distance.
+    _cylinder("nose_lock", radius * 1.035, radius * .10, body_center + total_body / 2 - radius * .06, steel, origin, ident)
+    _cylinder("ident_band", radius * 1.04, radius * .13, body_center + total_body / 2 - radius * .22, amber, origin, ident)
+    _cylinder("band_seam", radius * 1.045, radius * .025, body_center + total_body / 2 - radius * .31, dark, origin, ident)
+    # Section collars and captive fasteners across the modular pressure hull.
+    cursor = body_center + total_body / 2
+    for index, section in enumerate(body):
+        length = section["length_m"]
+        cursor -= length
+        _cylinder(f"collar_{index}", radius * 1.025, min(radius * .055, length * .08), cursor, dark if index % 2 else steel, origin, ident)
+        if length > radius * 1.5:
+            for side in range(4):
+                angle = side * 3.14159265 / 2
+                x, y = radius * 1.018 * __import__("math").sin(angle), radius * 1.018 * __import__("math").cos(angle)
+                bpy.ops.mesh.primitive_cube_add(size=1, location=(x, y, cursor + length * .47))
+                screw = bpy.context.active_object
+                screw.name = f"service_lock_{index}_{side}"
+                screw.dimensions = (radius * .12, radius * .05, radius * .045)
+                screw.rotation_euler[2] = angle
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+                _detail(screw, ident, origin, steel)
+    # A dark recessed exhaust and a ring of tail flutes sell the propulsion end.
+    _cylinder("nozzle_rim", radius * .70, radius * .12, aft - radius * .05, steel, origin, ident)
+    _cylinder("nozzle_recess", radius * .42, radius * .13, aft - radius * .12, dark, origin, ident)
+    for index in range(8):
+        angle = index * 3.14159265 / 4
+        x, y = radius * .78 * __import__("math").sin(angle), radius * .78 * __import__("math").cos(angle)
+        bpy.ops.mesh.primitive_cube_add(size=1, location=(x, y, aft + radius * .01))
+        flute = bpy.context.active_object
+        flute.name = f"tail_flute_{index}"
+        flute.dimensions = (radius * .08, radius * .18, radius * .035)
+        flute.rotation_euler[2] = angle
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        _detail(flute, ident, origin, steel)
+
+
 def build_loaded_torpedoes(spec, tubes, overrides=None):
     overrides = overrides or {}
     made = []
@@ -42,4 +115,5 @@ def build_loaded_torpedoes(spec, tubes, overrides=None):
             part.data.materials.clear()
             part.data.materials.append(material)
         made.extend(parts)
+        _torpedo_hardware(rocket, origin, ident)
     return made

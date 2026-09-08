@@ -29,7 +29,7 @@ def test_fin_change_names_the_fin_part():
 
 def test_numeric_changes_report_a_delta():
     taller = BASELINE.model_copy(deep=True)
-    taller.body[0].length_m = 0.24
+    taller.body[0].length_m += 0.04
     line = diff_specs(BASELINE, taller).changes[0].human()
     assert "+0.04" in line
 
@@ -108,7 +108,7 @@ def test_torpedo_edits_name_their_own_part():
     from rocinante.samples import ROCINANTE
 
     after = ROCINANTE.model_copy(deep=True)
-    after.torpedo.fins.count = 4
+    after.torpedo.fins.count = 3 if ROCINANTE.torpedo.fins.count == 4 else 4
     d = diff_ships(ROCINANTE, after)
     assert [c.path for c in d.changes] == ["torpedo.fins.count"]
     assert d.changed_parts == ["torpedo"]

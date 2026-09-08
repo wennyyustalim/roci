@@ -80,7 +80,8 @@ public class RocinanteAgent {
         File file = new File(new String(Base64.getDecoder().decode(props.getProperty("file")), java.nio.charset.StandardCharsets.UTF_8));
         Path allowed = commandPath.getParent().resolve("torpedo").toRealPath();
         if (!file.toPath().toRealPath().startsWith(allowed)) throw new IllegalArgumentException("File is outside this workshop's torpedo directory");
-        List<?> frames = (List<?>) frameClass.getMethod("getAllFrames").invoke(null);
+        List<Frame> frames = new ArrayList<>();
+        for (Frame candidate : Frame.getFrames()) if (candidate.isDisplayable() && candidate.getClass().getName().equals("info.openrocket.swing.gui.main.BasicFrame")) frames.add(candidate);
         if (managedFrame == null || !managedFrame.isDisplayable()) {
             managedFrame = null;
             for (Object frame : frames) {
@@ -91,7 +92,13 @@ public class RocinanteAgent {
                 }
             }
         }
-        if (managedFrame == null) throw new IllegalStateException("Open the workshop torpedo once in OpenRocket to connect its window");
+        if (managedFrame == null) {
+            // No workshop document is open yet (or it was closed by the user).
+            // Open it once inside the existing JVM; subsequent selections reuse this frame.
+            managedFrame = (Frame) frameClass.getMethod("open", File.class, java.awt.Window.class).invoke(null, file, null);
+            if (managedFrame == null) throw new IllegalStateException("OpenRocket could not open the workshop document");
+        }
+        frameClass = managedFrame.getClass();
         Object panel = call(managedFrame, "getRocketPanel"), doc = call(panel, "getDocument");
         String digest = props.getProperty("digest");
         if (!digest.equals(loadedDigest)) {

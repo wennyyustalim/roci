@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createAssembly } from "./assembly.js";
+import { buildTorpedo } from "./torpedo.js";
+import { createLaunch } from "./launch.js";
 
 // The stage: deep space, the Roci in the middle, the neighbourhood far away.
 // Blender's export is the ship; the schematic below is only the fallback
@@ -37,37 +39,13 @@ function schematicShip(spec, changed, ghost, geometryChanged=[]) {
 
 // Loaded rounds stay at their physical spec dimensions, on their launch rails.
 function loadedTorpedo(spec, id, bay) {
-  const group=new THREE.Group(); group.name=id;
-  group.userData={assembly_kind:"torpedo",torpedo_id:id,rocinantePrimitive:true};
-  const amber=new THREE.MeshStandardMaterial({color:0xffc16c,emissive:0xd88728,emissiveIntensity:.45,metalness:.45,roughness:.35});
-  const bodyMaterial=new THREE.MeshStandardMaterial({color:0xe0e8ec,emissive:0xa76c27,emissiveIntensity:.18,metalness:.55,roughness:.35});
-  let y=0;
-  for(const tube of [...spec.body].reverse()) {
-    mesh(group,new THREE.CylinderGeometry(tube.outer_radius_m,tube.outer_radius_m,tube.length_m,32),bodyMaterial,0,y+tube.length_m/2,0);
-    y+=tube.length_m;
-  }
-  const nose=spec.nose, profile=[];
-  for(let i=0;i<=40;i++) {
-    const t=i/40;
-    const theta=Math.acos(1-2*(1-t));
-    const radius=nose.shape==="conical" ? 1-t : nose.shape==="ellipsoid" ? Math.sqrt(1-t*t) :
-      nose.shape==="parabolic" ? (2*(1-t)-nose.shape_parameter*(1-t)**2)/(2-nose.shape_parameter) :
-      nose.shape==="haack" ? Math.sqrt(Math.max(0,(theta-Math.sin(2*theta)/2+nose.shape_parameter*Math.sin(theta)**3)/Math.PI)) :
-      (()=> { const rho=(nose.base_radius_m**2+nose.length_m**2)/(2*nose.base_radius_m);
-        return (Math.sqrt(Math.max(0,rho*rho-(t*nose.length_m)**2))+nose.base_radius_m-rho)/nose.base_radius_m; })();
-    profile.push(new THREE.Vector2(Math.max(0,radius)*nose.base_radius_m,y+t*nose.length_m));
-  }
-  mesh(group,new THREE.LatheGeometry(profile,32),amber);
-  const fins=spec.fins, r=spec.body.at(-1).outer_radius_m, aft=fins.offset_from_aft_m;
-  const shape=new THREE.Shape(); shape.moveTo(r,aft); shape.lineTo(r,aft+fins.root_chord_m);
-  shape.lineTo(r+fins.height_m,aft+fins.root_chord_m-fins.sweep_m);
-  shape.lineTo(r+fins.height_m,aft+fins.root_chord_m-fins.sweep_m-fins.tip_chord_m); shape.closePath();
-  const geometry=new THREE.ExtrudeGeometry(shape,{depth:fins.thickness_m,bevelEnabled:false}); geometry.translate(0,0,-fins.thickness_m/2);
-  for(let i=0;i<fins.count;i++) mesh(group,geometry,amber).rotation.y=i/fins.count*Math.PI*2;
-  const length=y+nose.length_m;
+  const group=buildTorpedo(spec,id);
+  const length=spec.nose.length_m+spec.body.reduce((sum,t)=>sum+t.length_m,0);
+  const r=spec.body.at(-1).outer_radius_m, fins=spec.fins;
   const box=new THREE.Box3().setFromObject(bay), center=box.getCenter(new THREE.Vector3());
   const side=Math.sign(center.z || -1), clearance=r+fins.height_m+.04;
   group.position.set(center.x,center.y-length/2,side<0 ? box.min.z-clearance : box.max.z+clearance);
+  group.userData.launch_position=[center.x,box.max.y-length,center.z];
   group.userData.assembly_offset=[Math.sign(center.x || 1)*5,0,side*11];
   // A small screen-space ring marks the actual round without scaling its mesh.
   const c=document.createElement("canvas"); c.width=c.height=64; const ctx=c.getContext("2d");
@@ -352,6 +330,7 @@ export function createScene(container) {
   const gltf=new GLTFLoader(), glbCache=new Map();
   let loadRequest=0, lastUpdate="", torpedoes=new Map();
   const assembly=createAssembly(models,camera,controls,container);
+  const launch=createLaunch({scene,camera,controls,assembly,container,torpedo:id=>torpedoes.get(id)});
   container.addEventListener("assemblychange",event=>{far.visible=event.detail.focus===null && !event.detail.subject;});
 
   // Blender writes the semantic part tag as a glTF extra; fall back to names.
@@ -420,6 +399,7 @@ export function createScene(container) {
     }
   }
   function selectTorpedo(id, notify=true) {
+    if(launch.active) return;
     const round=torpedoes.get(id); if(!round) return;
     assembly.focus(null,round);
     if(notify) container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{torpedo_id:id}}));
@@ -484,12 +464,14 @@ export function createScene(container) {
     });
     for(const round of torpedoes.values()) {
       const marker=round.children.find(o=>o.userData.torpedoMarker);
-      marker.visible=camera.position.distanceTo(round.getWorldPosition(new THREE.Vector3()))>4;
+      if(marker) marker.visible=camera.position.distanceTo(round.getWorldPosition(new THREE.Vector3()))>4;
     }
-    if(!assembly.movingCamera) controls.update();
+    launch.tick(dt);
+    if(!assembly.movingCamera && !launch.active) controls.update();
     renderer.render(scene,camera);
   });
   function focus(name) {
+    if(launch.active) return;
     if(name==="ship") { reset(); return; }
     const body=far.userData.landmarks[name]; if(!body) return;
     clearSelection(); assembly.suspend();
@@ -498,11 +480,13 @@ export function createScene(container) {
     assembly.moveCamera(body.position,frameDistance(radius,1.15),direction);
   }
   function reset() {
+    launch.cancel();
     clearSelection();
     if(assembly.ready) assembly.expand(false); else { assembly.suspend(); fit(); }
   }
   const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
   function hitAt(event) {
+    if(launch.active) return null;
     const rect=renderer.domElement.getBoundingClientRect();
     pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
     scene.updateMatrixWorld(true); camera.updateMatrixWorld(); raycaster.setFromCamera(pointer,camera);
@@ -535,7 +519,7 @@ export function createScene(container) {
   renderer.domElement.addEventListener("pointerup",event=> {
     activePointers.delete(event.pointerId);
     const click=press && press.id===event.pointerId && !press.dragged && Math.hypot(event.clientX-press.x,event.clientY-press.y)<=6;
-    press=null; if(!click) return;
+    press=null; if(!click || launch.active) return;
     const hit=hitAt(event); if(!hit) { clearSelection(); assembly.frame(); return; }
     if(hit.kind==="landmark") focus(hit.name);
     else if(hit.kind==="torpedo") selectTorpedo(hit.id);
@@ -548,12 +532,14 @@ export function createScene(container) {
   renderer.domElement.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   return {
     fit, reset, focus, selectTorpedo,
-    setExpanded(on) { clearSelection(); assembly.expand(on); },
-    focusDeck(index) { assembly.focus(index); },
-    setRotate(on) { controls.autoRotate=on; },
+    launch: data=>launch.start(data), cancelLaunch: ()=>launch.cancel(),
+    setExpanded(on) { if(launch.active) return; clearSelection(); assembly.expand(on); },
+    focusDeck(index) { if(launch.active) return; assembly.focus(index); },
+    setRotate(on) { if(!launch.active) controls.autoRotate=on; },
     async update(current,previous,{ghost,highlight}) {
       const signature=JSON.stringify([current.index,current.handoff?.artifacts,current.torpedoes,ghost,highlight]);
       if(signature===lastUpdate) return "unchanged";
+      launch.cancel();
       const request=++loadRequest;
       const artifacts=current.handoff?.artifacts;
       const exportedSource=artifactSource(artifacts?.after);

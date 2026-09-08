@@ -327,8 +327,8 @@ def demo(
 ) -> None:
     """The one command: web UI | OpenRocket over Blender | Kord, and Astra arming the ship.
 
-    Every ask becomes the ship. Blender rebuilds the hull, OpenRocket reopens
-    the torpedo when it changed, and Kord gets the comparison in the background.
+    Every ask becomes a revision. A selected torpedo scopes the refit to that round;
+    Blender and OpenRocket update in place, and Kord gets the comparison in the background.
     """
     from rocinante.agent.refit import model_name
     from rocinante.demo import (

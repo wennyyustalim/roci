@@ -25,6 +25,10 @@ class SimResult(BaseModel):
     # (t, x, y, z) in metres, downsampled. Drives the Blender flight animation.
     trajectory: list[tuple[float, float, float, float]] = Field(default_factory=list)
 
+    # Viewer coordinates: time, x, altitude (+Y), -north, speed, thrust.
+    ascent: list[list[float]] = Field(default_factory=list)
+    source_sha256: str = ""
+
     warnings: list[str] = Field(default_factory=list)
     backend: str = ""
 
