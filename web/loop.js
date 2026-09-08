@@ -23,6 +23,12 @@ function render() {
   el("propose").disabled=busy || pending;
   el("title").textContent=`${it.name} / v${it.index}`;
   el("comparison").textContent=prev ? `Compared with accepted v${prev.index} · ${it.status} · ${it.model || it.source} proposal` : "Accepted baseline · drag to orbit, scroll to zoom";
+  const tubeDelta=prev ? it.spec.weapons.torpedo_tubes-prev.spec.weapons.torpedo_tubes : 0;
+  el("geometry-note").textContent=!prev ? "" : tubeDelta
+    ? `${Math.abs(tubeDelta)} launch tube${Math.abs(tubeDelta)===1 ? "" : "s"} ${tubeDelta>0 ? "added" : "removed"} · blue highlights mark input-only edits`
+    : !it.geometry_changed_parts ? "Highlights identify affected assemblies"
+    : it.geometry_changed_parts.length ? "Orange highlights mark assemblies with geometry edits"
+    : "Exterior unchanged · highlights mark affected engineering inputs";
   el("rationale").textContent=it.rationale;
   el("timeline").replaceChildren(...state.iterations.map((item,i)=> {
     const button=document.createElement("button");button.className="revision";button.setAttribute("aria-current",String(i===selected));

@@ -30,6 +30,7 @@ def export_pair(out: Path, current: dict, parent: dict) -> dict:
         "source": current.get("source"), "ask": current.get("ask"),
         "model": current.get("model"),
         "rationale": current["rationale"], "changes": current["changes"],
+        "geometry_changed_parts": current.get("geometry_changed_parts", []),
         "before": {key: parent[key] for key in ("derived", "mission", "delta_v_margin")},
         "after": {key: current[key] for key in ("derived", "mission", "delta_v_margin")},
         "artifacts": artifacts,
