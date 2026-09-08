@@ -1,7 +1,7 @@
 """Local refit workbench: propose, inspect, decide, repeat.
 
 Fixture proposals exercise the same validation, diff and physics as model
-proposals. Nothing is sent to Kord by this local review workflow.
+proposals. Kord sharing is an explicit action separate from local approval.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from pathlib import Path
 from rocinante.agent.refit import RefitAgent, RefitResult
 from rocinante.diff import diff_ships
 from rocinante.flight import plan
+from rocinante.handoff import export_pair, share_url, verified_pair
+from rocinante.kord import KordClient
 from rocinante.samples import ROCINANTE
 from rocinante.ship import ShipSpec
 
@@ -61,6 +63,15 @@ class Workbench:
         out.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
+            for entry in self.state["iterations"]:
+                handoff = entry.get("handoff", {})
+                if handoff.get("status") in ("exporting", "sharing"):
+                    stage = handoff["status"]
+                    handoff.update(
+                        status="share_failed" if stage == "sharing" else "export_failed",
+                        error="Operation interrupted. Retry explicitly; a share may already exist at Kord.",
+                    )
+            self.save()
         else:
             self.state = {"accepted": 0, "iterations": [self.entry(ROCINANTE, 0, "approved")]}
             self.save()
@@ -84,7 +95,60 @@ class Workbench:
         temporary.replace(self.path)
 
     def snapshot(self):
-        return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS}
+        return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS,
+                "kord_base": KordClient().base_url}
+
+    def revision(self, payload: dict):
+        index = payload.get("index")
+        if type(index) is not int or not 0 < index < len(self.state["iterations"]):
+            raise ValueError("Select a proposal revision to export or share")
+        return self.state["iterations"][index]
+
+    def export(self, payload: dict):
+        current = self.revision(payload)
+        handoff = current.setdefault("handoff", {})
+        if handoff.get("share_url"):
+            return self.snapshot()  # Preserve the exact pair already shared.
+        handoff.update(status="exporting", error=None)
+        self.save()
+        try:
+            parent = self.state["iterations"][current["parent"]]
+            handoff["artifacts"] = export_pair(self.out, current, parent)
+            handoff["status"] = "exported"
+        except Exception:
+            handoff.update(status="export_failed", error="Blender export failed. Check server logs and retry.")
+            logging.getLogger(__name__).exception("Comparison export failed")
+        self.save()
+        return self.snapshot()
+
+    def share(self, payload: dict):
+        current = self.revision(payload)
+        handoff = current.setdefault("handoff", {})
+        if handoff.get("share_url"):
+            return self.snapshot()  # Repeated clicks do not create another share.
+        if handoff.get("status") not in ("exported", "share_failed"):
+            raise ValueError("Export the comparison before sharing it")
+        before, after = verified_pair(self.out, handoff["artifacts"])
+        handoff.update(status="sharing", error=None)
+        self.save()
+        kord = KordClient()
+        try:
+            result = kord.share_diff(
+                before, after,
+                title=f"{current['name']} v{current['parent']} → v{current['index']} ({current.get('source', 'proposal')})",
+            )
+            handoff.update(status="shared", share_url=share_url(kord.base_url, result.get("url", "")),
+                           expires_at=result.get("expiresAt"))
+        except Exception:
+            handoff.update(status="share_failed", error=(
+                "Kord sharing failed. Your export and proposal are saved. "
+                "Retry may create another link if the previous upload reached Kord."
+            ))
+            logging.getLogger(__name__).exception("Kord sharing failed")
+        finally:
+            kord.close()
+        self.save()
+        return self.snapshot()
 
     def propose(self, payload: dict):
         if self.state["iterations"][-1]["status"] == "pending":
@@ -140,6 +204,16 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
         def do_GET(self):
             if self.path == "/api/state":
                 return self.reply(200, workbench.snapshot())
+            if self.path.startswith("/exports/"):
+                # Only generated, known artifacts; never expose the workspace.
+                parts = self.path.split("/")
+                allowed = {"before.glb", "after.glb", "before.json", "after.json", "comparison.json"}
+                if len(parts) == 4 and parts[2].startswith("v") and parts[2][1:].isdigit() and parts[3] in allowed:
+                    path = workbench.out / "exports" / parts[2] / parts[3]
+                    if path.is_file() and path.resolve().is_relative_to((workbench.out / "exports").resolve()):
+                        mime = "model/gltf-binary" if path.suffix == ".glb" else "application/octet-stream"
+                        return self.reply(200, path.read_bytes(), mime)
+                return self.reply(404, {"error": "Export not found"})
             assets = {"/": ("loop.html", "text/html; charset=utf-8"),
                       "/loop.js": ("loop.js", "text/javascript"),
                       "/loop.css": ("loop.css", "text/css"),
@@ -167,6 +241,10 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                     state = workbench.propose(payload)
                 elif self.path == "/api/decide":
                     state = workbench.decide(payload)
+                elif self.path == "/api/export":
+                    state = workbench.export(payload)
+                elif self.path == "/api/share":
+                    state = workbench.share(payload)
                 else:
                     return self.reply(404, {"error": "Not found"})
                 self.reply(200, state)
@@ -174,6 +252,6 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 self.reply(400, {"error": str(exc)})
             except Exception:
                 logging.getLogger(__name__).exception("Workbench request failed")
-                self.reply(502, {"error": "Proposal failed. Check model access and server logs; retry."})
+                self.reply(502, {"error": "Request failed. Check server logs; the accepted design is preserved."})
 
     return HTTPServer(("127.0.0.1", port), Handler)

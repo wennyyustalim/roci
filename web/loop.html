@@ -36,9 +36,18 @@
       <h3>Spec changes</h3><ul id="changes"></ul>
       <div id="review"><span class="eyebrow">05 / Human decision</span><p id="verdict"></p><div class="actions"><button id="approve">Approve revision</button><button id="reject" class="secondary">Reject</button></div></div>
       <a id="download" download="ship.json">Download selected spec ↓</a>
+      <section id="handoff">
+        <h3>06 / Kord comparison</h3>
+        <p id="handoff-status" role="status">Select a proposal to export.</p>
+        <div class="actions"><button id="export" class="secondary">Export comparison</button><button id="share" class="secondary">Share with Kord</button></div>
+        <p id="share-destination" class="note"></p>
+        <div id="artifacts" class="artifact-links" hidden></div>
+        <a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>Open Kord comparison ↗</a>
+        <p class="note">Sharing uploads both GLBs and creates a public comparison link. Local approval does not set a Kord verdict.</p>
+      </section>
     </aside>
   </main>
-  <footer>Primitive geometry · engineering estimates · local decisions saved to disk · Kord filing is a separate CLI step</footer>
+  <footer>Primitive preview · engineering estimates · local decisions saved to disk · explicit GLB export and Kord sharing</footer>
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
   <script type="module" src="loop.js"></script>
 </body>

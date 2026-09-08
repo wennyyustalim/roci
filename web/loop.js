@@ -44,18 +44,39 @@ function render() {
   list("changes",it.changes.length ? it.changes : ["No spec changes"]);
   el("verdict").textContent=it.status==="pending" ? "Pending your review. Approval advances the active design." : `${it.status[0].toUpperCase()+it.status.slice(1)} · active design is v${state.accepted}`;
   for(const id of ["approve","reject"]) el(id).disabled=busy || it.status!=="pending";
+  const handoff=it.handoff ?? {};
+  el("export").disabled=busy || !prev || Boolean(handoff.share_url);
+  el("share").disabled=busy || !["exported","share_failed"].includes(handoff.status) || Boolean(handoff.share_url);
+  el("share").textContent=handoff.status==="share_failed" ? "Retry Kord share" : "Share with Kord";
+  el("handoff-status").textContent=handoff.error || ({exported:"GLB pair exported and ready to share.",shared:"Comparison shared. Link saved with this revision."}[handoff.status]) || (prev ? "Export this revision and its accepted parent through Blender." : "Select a proposal to export.");
+  el("share-destination").textContent=`Destination: ${state.kord_base}`;
+  el("kord-link").hidden=!handoff.share_url;
+  if(handoff.share_url) el("kord-link").href=handoff.share_url;
+  el("artifacts").hidden=!handoff.artifacts || handoff.status==="export_failed";
+  el("artifacts").replaceChildren();
+  if(handoff.artifacts) {
+    const directory=`/exports/v${String(it.index).padStart(4,"0")}/`;
+    for(const [file,label] of [["before.glb","Before GLB ↓"],["after.glb","After GLB ↓"],["comparison.json","Comparison report ↓"]]) {
+      const link=document.createElement("a");link.href=directory+file;link.download=file;link.textContent=label;el("artifacts").append(link);
+    }
+  }
   if(download) URL.revokeObjectURL(download);
   download=URL.createObjectURL(new Blob([JSON.stringify(it.spec,null,2)],{type:"application/json"}));el("download").href=download;
   renderScene();
 }
 async function act(path,payload) {
-  busy=true;render();el("status").textContent=path==="propose" ? "Proposing → validating spec → computing consequences…" : "Saving your decision…";
-  try {state=await api(path,payload);selected=state.iterations.length-1;el("status").textContent=path==="propose" ? "Proposal ready. Inspect the changes, then approve or reject." : "Decision saved. The next proposal starts from the accepted revision.";}
+  if(busy) return;
+  busy=true;render();el("status").textContent=({propose:"Proposing → validating spec → computing consequences…",export:"Exporting both ships through Blender…",share:"Uploading the exported pair to Kord…",decide:"Saving your decision…"})[path];
+  try {
+    state=await api(path,payload);selected=payload.index ?? state.iterations.length-1;
+    el("status").textContent=({propose:"Proposal ready. Inspect the changes, then approve or reject.",decide:"Decision saved. The next proposal starts from the accepted revision.",export:"Export finished. See the Kord comparison panel for results.",share:"Sharing finished. See the Kord comparison panel for results."})[path];
+  }
   catch(error) {el("status").textContent=error.message;}
   finally {busy=false;render();}
 }
 el("proposal").onsubmit=e=>{e.preventDefault();if(!busy) act("propose",{preset:el("preset").value,ask:el("ask").value});};
 for(const [id,verdict] of [["approve","approved"],["reject","rejected"]]) el(id).onclick=()=>act("decide",{index:selected,verdict});
+for(const path of ["export","share"]) el(path).onclick=()=>act(path,{index:selected});
 for(const id of ["ghost","highlight","rotate"]) el(id).onchange=renderScene;
 el("fit").onclick=()=>scene?.fit();
 try {
