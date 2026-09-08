@@ -19,6 +19,7 @@ public class RocinanteAgent {
     private static Object launchMarker;
     private static String launchId = "";
     private static String launchLabel = "";
+    private static String lastPlayback = "";
 
     public static synchronized void agentmain(String path, Instrumentation inst) throws Exception {
         command = Paths.get(path);
@@ -116,8 +117,12 @@ public class RocinanteAgent {
         frameClass = managedFrame.getClass();
         Object panel = call(managedFrame, "getRocketPanel"), doc = call(panel, "getDocument");
         boolean simulation = "simulation".equals(props.getProperty("action"));
+        if (simulation && !(Boolean) call(doc, "isSaved")) throw new IllegalStateException("Save your manual OpenRocket edits before launching");
         if (launchPlot != null) { launchPlot.dispose(); launchPlot = null; }
-        launchMarker = null; launchId = "";
+        for (java.awt.Window owned : managedFrame.getOwnedWindows()) {
+            if (owned instanceof javax.swing.JDialog && ((javax.swing.JDialog) owned).getTitle().contains(" — OpenRocket launch")) owned.dispose();
+        }
+        launchMarker = null; launchId = ""; lastPlayback = "";
         String digest = props.getProperty("digest");
         if (!digest.equals(loadedDigest)) {
             if (!(Boolean) call(doc, "isSaved")) throw new IllegalStateException("Save your manual OpenRocket edits before switching torpedoes");
@@ -197,6 +202,8 @@ public class RocinanteAgent {
         call(plot, "addDomainMarker", launchMarker);
         launchId = props.getProperty("launch_id");
         launchPlot.setVisible(true);
+        launchPlot.setBounds(managedFrame.getBounds());
+        call(call(plot, "getDomainAxis"), "setRange", 0.0, Double.parseDouble(props.getProperty("ascent_end")) * 1.05);
     }
 
     private static void playback(Properties clock) throws Exception {
@@ -205,9 +212,12 @@ public class RocinanteAgent {
         if (!Double.isFinite(time) || time < 0) return;
         String phase = clock.getProperty("phase", "ready");
         String label = String.format(java.util.Locale.ROOT, "T+%.2f s · %s", time, phase);
+        if (label.equals(lastPlayback)) return;
         call(launchMarker, "setValue", time);
         call(launchMarker, "setLabel", label);
         launchPlot.setTitle(launchLabel + " — " + label);
+        lastPlayback = label;
+        status(command, launchId, "synced", "OpenRocket plot " + label);
     }
 
     private static String json(String text) {

@@ -142,6 +142,10 @@ camera pulls back, the ship assembles, and the selected round launches from its
 tube. The camera widens with the flight while keeping the Roci in view. A moving
 training drone crosses the sampled ascent and breaks apart on contact. Repeat
 launches reuse the computed flight; Reset view or Cancel launch restores the round.
+When the OpenRocket desktop integration is enabled, Launch also opens its native
+altitude/velocity plot with the same saved simulation data. An orange time cursor
+follows the viewer's simulation clock, including slowed playback, impact and cancel.
+The plot uses the existing workshop window; replay replaces the previous plot.
 
 Flight data comes from the accepted torpedo's exported `.ork`, including any
 individual refit, simulated in an isolated OpenRocket JVM. The viewer shows actual

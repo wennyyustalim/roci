@@ -70,24 +70,18 @@ export function createAssembly(models, camera, controls, container) {
         if(ghost) return;
         if(data.assembly_kind==="deck") {
           decks.push({object,index:data.deck_index,name:data.deck_label,crew:[]});
-          const element=document.createElement("span"); element.className="part-label";
-          element.textContent=`${String(data.deck_index+1).padStart(2,"0")}  ${data.deck_label}`;
-          layer.append(element);
-          const local=object.worldToLocal(center.clone()); local.x=box.getSize(new THREE.Vector3()).x*.52;
-          labels.push({object,element,local,index:data.deck_index,crew:false});
         } else if(data.assembly_kind==="torpedo") {
           const element=document.createElement("span"); element.className="part-label torpedo-label";
           element.textContent=data.torpedo_id?.replace("torpedo_","TORPEDO ") || "TORPEDO"; layer.append(element);
           labels.push({object,element,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.06,center.z)),torpedo:true});
         } else if(data.assembly_kind==="crew") {
-          const element=document.createElement("span"); element.className="crew-label"; element.textContent=data.crew_name;
-          layer.append(element);
-          const local=object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.32,center.z));
-          labels.push({object,element,local,index:data.deck_index,crew:true});
+          // Crew remains selectable and available in deck detail, but only
+          // torpedoes receive an on-canvas label in the focused UI.
+          const deck=decks.find(d=>d.index===data.deck_index);
+          if(deck && data.crew_name) deck.crew.push(data.crew_name);
         }
       });
     }
-    for(const d of decks) d.crew=labels.filter(l=>l.crew && l.index===d.index).map(l=>l.element.textContent);
     decks.sort((a,b)=>a.index-b.index);
     for(const p of pieces) p.object.position.copy(p.base).addScaledVector(p.offset,amount);
     focusObject=pieces.find(p=>!p.ghost && p.object.name===selectedName)?.object || null;

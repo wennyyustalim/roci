@@ -42,6 +42,7 @@ function renderProgress(it,prev) {
 function render() {
   const it=current(), prev=state.iterations[it.parent];
   renderScope();
+  syncStatus(state);
   el("preset").hidden=state.mode!=="fixture"; el("ask").hidden=state.mode!=="live"; el("samples").hidden=state.mode!=="live";
   el("propose").textContent=state.mode==="live" ? "Ask Astra →" : "Run fixture →";
   el("propose").disabled=busy || launching;
@@ -101,8 +102,34 @@ function renderScope() {
   el("samples").replaceChildren(...(state.sample_asks ?? []).map(ask=>{const b=document.createElement("button");b.type="button";b.textContent=ask;b.onclick=()=>{el("ask").value=ask;el("ask").focus();};return b;}));
 }
 function syncStatus(snapshot) {
-  setOptionalText("selection-sync",Object.entries(snapshot.integrations || {}).map(([app,result])=>
-    `${app==="blender" ? "Blender" : "OpenRocket"}: ${result.status==="synced" ? "in sync" : result.status==="error" ? result.message : "focusing…"}`).join(" · "));
+  const container=el("selection-sync"); if(!container) return;
+  const entries=Object.entries(snapshot.integrations || {}).map(([app,result])=>({
+    name:({blender:"Blender",openrocket:"OpenRocket"})[app] || app,
+    status:result.status,
+    label:result.status==="synced" ? "in sync" : result.status==="error" ? "sync failed" : result.status==="pending" ? "focusing…" : "off",
+    detail:result.message || "Selection sync",
+  }));
+  const it=snapshot.iterations[snapshot.accepted], h=it.handoff || {};
+  const kord={
+    exporting:["pending","exporting…"],
+    exported:[snapshot.auto_share ? "pending" : "idle",snapshot.auto_share ? "uploading…" : "not shared"],
+    sharing:["pending","uploading…"],
+    shared:[h.share_url ? "synced" : "idle",h.share_url ? "in sync" : "not shared"],
+    share_failed:["error","upload failed"],
+    export_failed:["error","export failed"],
+  }[h.status] || ["idle",it.parent == null ? "awaiting refit" : "not shared"];
+  entries.push({name:"Kord",status:kord[0],label:kord[1],
+    detail:h.error || (kord[0]==="synced" ? `Comparison for v${it.index} shared with Kord. Selection focus is not linked.` : "Kord receives a before/after comparison when a refit is shared.")});
+  const nodes=entries.map(({name,status,label,detail})=>{
+    const item=document.createElement("span");
+    item.className="sync-indicator"; item.dataset.status=status; item.title=detail;
+    item.setAttribute("aria-label",`${name}: ${label}`);
+    const dot=document.createElement("span"); dot.className="sync-dot"; dot.setAttribute("aria-hidden","true");
+    item.append(dot,document.createTextNode(status==="synced" ? name : `${name}: ${label}`));
+    return item;
+  });
+  // Avoid repeating live-region announcements when polling returns the same state.
+  if(container.innerHTML!==nodes.map(node=>node.outerHTML).join("")) container.replaceChildren(...nodes);
 }
 function selectModel(selection) {
   const id=selection.kind==="torpedo" ? selection.id : null;
