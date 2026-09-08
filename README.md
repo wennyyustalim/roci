@@ -139,8 +139,10 @@ variable-mass mission solving, and combat simulation are not demonstrated.
 
 Select a loaded torpedo in the web viewer and press **Launch torpedo**. The
 camera pulls back, the ship assembles, and the selected round launches from its
-tube. The camera moves in and follows the torpedo at a steady distance. A moving
-training drone crosses the sampled ascent and breaks apart on contact. Repeat
+tube. The camera moves in for a close view of the torpedo and its bright exhaust,
+then follows at a steady distance. A moving training drone crosses the sampled
+ascent; contact produces a brief flash and turbulent fire that cools into a fading
+cloud, with the camera easing back to frame the explosion. Repeat
 launches reuse the computed flight; Reset view or Cancel launch restores the round.
 When the OpenRocket desktop integration is enabled, Launch also opens its native
 altitude/velocity plot with the same saved simulation data. An orange time cursor
