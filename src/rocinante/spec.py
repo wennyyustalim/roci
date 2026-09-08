@@ -69,6 +69,8 @@ class Motor(BaseModel):
     manufacturer: str = "Estes"
     diameter_mm: float = Field(default=24.0, gt=0)
     length_mm: float = Field(default=70.0, gt=0)
+    # Ejection delay, the "-6" in E12-6. Fires the recovery charge after burnout.
+    delay_s: float = Field(default=6.0, ge=0)
 
 
 class Recovery(BaseModel):

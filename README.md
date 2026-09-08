@@ -63,18 +63,23 @@ For the end-to-end skeleton, Python is enough:
 
 ```bash
 uv sync --extra dev
-uv run rocinante demo --port 3001
-# Open http://127.0.0.1:3001/
+ln -s "$PWD/bin/roci" ~/.local/bin/roci   # once; or use bin/roci directly
+roci demo
 ```
 
-This also opens one visible Blender window. It watches the current proposal
-and regenerates the Roci in place whenever you propose a change (or restores
-the accepted ship when you reject one). Choose a fixture refit, inspect the ship comparison and computed
+`roci demo` is the whole setup. It loads `.env`, serves the workbench, and
+opens three windows: Chrome on the review UI, Blender on the ship under
+review, and OpenRocket on the latest torpedo (rewritten fresh from its spec).
+Live model proposals are the default when `OPENAI_API_KEY` is set; pass
+`--fixture` for the deterministic presets. Each window has a `--no-*` flag.
+
+The Blender window watches the current proposal and regenerates the Roci in
+place whenever you propose a change (or restores the accepted ship when you
+reject one). Choose a fixture refit, inspect the ship comparison and computed
 consequences, then approve or reject. Repeat: the next proposal starts from
 the last approved design. History survives refreshes and server restarts in
 `out/workbench/workbench.json`. Use `--out out/another-run` for a fresh loop.
-Use `--no-blender` when running the local workbench without its live Blender
-window. The 3D viewer needs access to jsDelivr; review and metrics remain usable if
+The 3D viewer needs access to jsDelivr; review and metrics remain usable if
 its modules fail to load. No Blender or API key is needed for fixture mode.
 
 For free-text model proposals, set `OPENAI_API_KEY` and optionally

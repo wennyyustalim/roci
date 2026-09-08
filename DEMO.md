@@ -18,12 +18,10 @@ The earlier approve/reject/next-proposal rehearsal remains in `out/demo-astra`.
 (expires 15 September 2026 at 19:27 UTC). The fixture fallback remains saved
 separately in `out/demo-fixture`.
 
-Restart this checkout's verified run with the main project's configured env:
+Restart this checkout's verified run:
 
 ```bash
-ROCINANTE_MODEL=gpt-6-astra KORD_API_BASE=https://work.withkord.com \
-  uv run --env-file /Users/w/Projects/rocinante/.env rocinante demo \
-  --live --port 3001 --out out/demo-stage-v2
+roci demo --out out/demo-stage-v2
 ```
 
 Use a new output directory for a fresh live rehearsal. The saved pending v1
@@ -31,29 +29,26 @@ requires approval or rejection before a new request; the status banner says so.
 
 ## Start
 
+One command. It loads `.env`, serves the workbench on port 3001, and opens
+Chrome (review UI), Blender (the ship under review) and OpenRocket (the latest
+torpedo, rewritten from its spec into `<out>/torpedo.ork`):
+
 ```bash
 uv sync --extra dev
-# Reliable fixture rehearsal; no model credentials needed.
-KORD_API_BASE=https://work.withkord.com uv run rocinante demo \
-  --port 3001 --out out/demo-fixture
-# Open http://127.0.0.1:3001/
+roci demo                              # live model when OPENAI_API_KEY is in .env
+roci demo --fixture --out out/demo-fixture   # deterministic rehearsal, no credentials
 ```
 
-Blender must be installed for Export comparison. Set `BLENDER_BIN` if it is
-not at `/Applications/Blender.app/Contents/MacOS/Blender`. The viewer loads
-Three.js from jsDelivr; sharing requires access to Kord. Primitive preview,
-review and physics work without Blender.
+`roci` is `bin/roci`; symlink it onto your PATH once. Shared comparisons go
+to the public Kord regardless of the local `KORD_API_BASE` in `.env`; pass
+`--kord` to change that. Blender must be installed for Export comparison. Set
+`BLENDER_BIN` if it is not at `/Applications/Blender.app/Contents/MacOS/Blender`.
+The viewer loads Three.js from jsDelivr; sharing requires access to Kord.
+Primitive preview, review and physics work without Blender.
 
-For live English requests, set `OPENAI_API_KEY` in `.env`, then run:
-
-```bash
-KORD_API_BASE=https://work.withkord.com uv run --env-file .env rocinante demo \
-  --live --port 3001 --out out/demo-live
-```
-
-Stop the fixture server first if using the same port. The explicit Kord
-setting avoids accidentally targeting an unavailable local server from `.env`.
-The CLI checks for a key at startup. Real `gpt-6-astra` proposals were verified
+Stop the previous server first if reusing the port; the command refuses a
+busy port rather than opening windows onto someone else's workbench. The CLI
+checks for a key at startup in live mode. Real `gpt-6-astra` proposals were verified
 on 8 September: torpedoes, armor, and a cone extension through the same review
 loop. The first request completed in 19.35 seconds. `ROCINANTE_MODEL` defaults
 to `gpt-6-astra`; the actual model is shown and saved with each revision.

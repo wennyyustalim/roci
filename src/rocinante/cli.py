@@ -245,30 +245,69 @@ def _baseline():
     return ROCINANTE
 
 
+PUBLIC_KORD = "https://work.withkord.com"
+
+
 @app.command()
 def demo(
     out: Path = typer.Option(Path("out/workbench"), "--out", "-o"),
     port: int = typer.Option(3001, "--port", "-p"),
-    live: bool = typer.Option(False, "--live", help="Use the configured model instead of fixtures."),
+    live: bool | None = typer.Option(
+        None, "--live/--fixture",
+        help="Model proposals or fixture presets. Default: live when OPENAI_API_KEY is set.",
+    ),
+    kord: str = typer.Option(
+        PUBLIC_KORD, "--kord",
+        help="Kord instance for shared comparisons. Overrides KORD_API_BASE from .env.",
+    ),
+    chrome: bool = typer.Option(True, "--chrome/--no-chrome", help="Open the workbench in Chrome."),
     blender: bool = typer.Option(True, "--blender/--no-blender", help="Show the live Roci in Blender."),
+    openrocket: bool = typer.Option(
+        True, "--openrocket/--no-openrocket", help="Open the latest torpedo in OpenRocket."
+    ),
 ) -> None:
-    """Run the local, interactive ship refit and human review loop."""
+    """The one command: serve the workbench and open Chrome, Blender and OpenRocket.
+
+    Blender tracks the design under review and regenerates it on every proposal.
+    OpenRocket gets the newest torpedo written fresh from its spec.
+    """
     from rocinante.agent.refit import model_name
+    from rocinante.demo import open_browser, open_openrocket, write_latest_torpedo
     from rocinante.workbench import Workbench, make_server
 
-    if live and not os.getenv("OPENAI_API_KEY", "").strip():
+    has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    if live is None:
+        live = has_key
+    if live and not has_key:
         raise typer.BadParameter(
-            "Live mode needs OPENAI_API_KEY. Export it or launch with "
-            "uv run --env-file .env rocinante demo --live."
+            "Live mode needs OPENAI_API_KEY. Put it in .env and launch with bin/roci demo, "
+            "or pass --fixture."
         )
-    server = make_server(Workbench(out, live=live, show_blender=blender), port)
-    console.print(f"Workbench: http://127.0.0.1:{port}/ ({'live model' if live else 'fixtures'})")
-    if live:
-        console.print(f"Model: {model_name()}")
-    console.print(f"Saved state: {out / 'workbench.json'}")
+    os.environ["KORD_API_BASE"] = kord
+
+    try:
+        server = make_server(Workbench(out, live=live, show_blender=blender), port)
+    except OSError as exc:
+        console.print(f"[red]Port {port} is already in use ({exc.strerror}).[/]")
+        console.print("Stop the other workbench, or run again with --port.")
+        raise typer.Exit(1) from exc
+
+    url = f"http://127.0.0.1:{port}/"
+    table = Table("Window", "Shows", "Detail")
+    table.add_row("Workbench", url, f"{'live ' + model_name() if live else 'fixture presets'}; "
+                  f"state in {out / 'workbench.json'}")
+    if chrome:
+        table.add_row(open_browser(url), "review UI", url)
     if blender:
-        console.print(f"Blender: live scene watching {out / 'blender-current.json'}")
-    console.print(f"Kord comparison destination: {KordClient().base_url}")
+        table.add_row("Blender", "ship under review", f"watching {out / 'blender-current.json'}")
+    if openrocket:
+        ork_path, source = write_latest_torpedo(out)
+        opened = open_openrocket(ork_path)
+        table.add_row(opened or "OpenRocket", "latest torpedo" if opened else "NOT INSTALLED",
+                      f"{ork_path} from {source}")
+    table.add_row("Kord", "shared comparisons", kord)
+    console.print(table)
+    console.print("[dim]Ctrl-C stops the server; the app windows stay open.[/]")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

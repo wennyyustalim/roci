@@ -13,7 +13,7 @@ import bpy
 
 PART = "rocinante_part"
 FACETS = 8
-MATERIAL_KEYS = ("hull", "panel", "dark", "drive", "drive_hot")
+MATERIAL_KEYS = ("hull", "panel", "dark", "drive", "drive_hot", "edge", "paint", "white", "light")
 
 
 def clear_scene():
@@ -163,17 +163,26 @@ def _tube(builder, start, end, outer_radius, inner_radius, material="panel", bor
 
 
 def hull_profile(hull, steps=None):
-    """Faceted profile: broad working hull, steep shoulders, chamfered prow."""
+    """Reference-inspired stations: engine skirt, waist, armor shoulders, bow.
+
+    The pointed tips are separate sensor spars; the inhabited bow is blunt.
+    Beam is the maximum armor envelope, with a much narrower machinery waist.
+    """
     length, radius, taper = hull["length_m"], hull["beam_m"] / 2, hull["taper"]
     return [
-        (0.00 * length, radius * 0.72),
-        (0.08 * length, radius * 0.92),
-        (0.28 * length, radius),
-        (0.55 * length, radius * 0.94),
-        (0.72 * length, radius * (0.66 + 0.34 * taper)),
-        (0.86 * length, radius * taper),
-        (0.96 * length, radius * taper * 0.42),
-        (1.00 * length, max(radius * taper * 0.10, 0.10)),
+        (0.00 * length, radius * 0.61),
+        (0.025 * length, radius * 0.70),
+        (0.12 * length, radius * 0.70),
+        (0.145 * length, radius * 0.55),
+        (0.29 * length, radius * 0.55),
+        (0.32 * length, radius * 0.69),
+        (0.38 * length, radius),
+        (0.53 * length, radius),
+        (0.60 * length, radius * 0.72),
+        (0.64 * length, radius * 0.72),
+        (0.79 * length, radius * (0.43 + 0.30 * taper)),
+        (0.90 * length, radius * taper * 0.72),
+        (0.94 * length, radius * taper * 0.63),
     ]
 
 
@@ -221,12 +230,122 @@ def faceted_y_at_x(rx, ry, x):
     return ry * min(limits)
 
 
+def _lerp(a, b, amount):
+    return _add(a, _scale(_sub(b, a), amount))
+
+
+def _plate(builder, corners, thickness, material="hull", bevel=0.08):
+    """Chamfered armor tile with a dark seam and a light-catching bevel."""
+    normal = _unit(_cross(_sub(corners[1], corners[0]), _sub(corners[3], corners[0])))
+    center = _scale(tuple(map(sum, zip(*corners))), 0.25)
+    lower, upper = [], []
+    for corner in corners:
+        lower.append(builder.vertex(corner))
+        upper.append(builder.vertex(_add(_lerp(corner, center, bevel), _scale(normal, thickness))))
+    builder.face(tuple(upper), material)
+    builder.face(tuple(reversed(lower)), "dark")
+    for i in range(4):
+        j = (i + 1) % 4
+        builder.face((lower[i], lower[j], upper[j], upper[i]), "edge")
+
+
+def _skin_point(hull, face, z, across, lift=0.0):
+    rx, ry = hull_radius_at(hull, z)
+    a, b = (2 * math.pi * (face + offset) / FACETS + math.pi / FACETS for offset in (0, 1))
+    point = _lerp((rx * math.cos(a), ry * math.sin(a), z),
+                  (rx * math.cos(b), ry * math.sin(b), z), across)
+    normal = _unit((math.cos((a + b) / 2) / rx, math.sin((a + b) / 2) / ry, 0))
+    return _add(point, _scale(normal, lift))
+
+
+def _skin_panel(builder, hull, face, z0, z1, u0=0.04, u1=0.96, material="hull", lift=0.04, depth=0.10):
+    corners = [_skin_point(hull, face, z, u, lift) for z, u in
+               ((z0, u0), (z0, u1), (z1, u1), (z1, u0))]
+    _plate(builder, corners, depth, material)
+
+
 def build_hull(spec):
-    hull = spec["hull"]
-    builder = MeshBuilder()
-    # Pale panel facets are actual pressure-hull faces, not floating plates.
-    add_faceted_shell(builder, hull_sections(hull), panel_faces={(1, 0), (1, 1), (2, 0), (2, 1),
-                                                                  (4, 0), (4, 1), (5, 0)})
+    hull, builder = spec["hull"], MeshBuilder()
+    length, radius = hull["length_m"], hull["beam_m"] / 2
+    detail = min(length / 46, radius / 11.5)
+    add_faceted_shell(builder, hull_sections(hull), "dark")
+
+    # Armor follows each hull plane exactly. Seams are real gaps between tiles,
+    # and the restrained red-orange paint is geometry so it survives GLB export.
+    for station, ((z0, _), (z1, _)) in enumerate(pairwise(hull_profile(hull))):
+        rows = max(1, round((z1 - z0) / (3.8 * detail)))
+        for face in range(FACETS):
+            for row in range(rows):
+                low = z0 + (z1 - z0) * row / rows + 0.055 * detail
+                high = z0 + (z1 - z0) * (row + 1) / rows - 0.055 * detail
+                color = "panel" if (station + face * 3 + row) % 7 == 0 else "hull"
+                if station in (1, 6) and face in (0, 3, 4, 7):
+                    color = "panel"
+                _skin_panel(builder, hull, face, low, high, material=color, depth=0.075 * detail)
+                if face in (0, 3, 4, 7) and station in (6, 9, 10):
+                    _skin_panel(builder, hull, face, low, high, 0.10, 0.17, "paint", 0.14 * detail, 0.01 * detail)
+                # Small access covers, paired fasteners and inspection stencils.
+                if station in (1, 4, 6, 9):
+                    _skin_panel(builder, hull, face, low + (high-low)*0.20, low + (high-low)*0.66,
+                                0.30, 0.66, "dark", 0.14 * detail, 0.025 * detail)
+                    _skin_panel(builder, hull, face, low + (high-low)*0.24, low + (high-low)*0.62,
+                                0.33, 0.63, "panel", 0.18 * detail, 0.025 * detail)
+                    for u in (0.12, 0.88):
+                        p = _skin_point(hull, face, low + (high-low)*0.15, u, 0.16 * detail)
+                        normal = _unit((p[0], p[1] / 0.74**2, 0))
+                        _cylinder(builder, p, _add(p, _scale(normal, 0.035*detail)), 0.055*detail, "edge", facets=6)
+
+    # Aft equipment racks: exposed conduits and heat exchangers in the waist.
+    for face in range(FACETS):
+        for u in (0.15, 0.27, 0.76, 0.85):
+            a = _skin_point(hull, face, length*0.15, u, 0.20*detail)
+            b = _skin_point(hull, face, length*0.285, u, 0.20*detail)
+            _cylinder(builder, a, b, 0.085*detail, "edge", facets=8)
+        for index in range(11):
+            low = length * (0.17 + index*0.009)
+            _skin_panel(builder, hull, face, low, low+length*0.003, 0.37, 0.65,
+                        "edge", 0.19*detail, 0.025*detail)
+
+    # Inset airlocks, ladders and equipment rails on the two broad faces.
+    for face in (1, 5):
+        for low, high, width in ((0.17, 0.265, (0.31, 0.69)), (0.40, 0.49, (0.35, 0.65))):
+            _skin_panel(builder, hull, face, length*low, length*high, *width, "edge", 0.23*detail, 0.07*detail)
+            _skin_panel(builder, hull, face, length*(low+0.008), length*(high-0.008),
+                        width[0]+0.035, width[1]-0.035, "dark", 0.34*detail, 0.025*detail)
+            _skin_panel(builder, hull, face, length*(low+0.015), length*(high-0.015),
+                        width[0]+0.06, width[1]-0.06, "panel", 0.38*detail, 0.02*detail)
+        for index in range(7):
+            low = length*(0.176+index*0.012)
+            _skin_panel(builder, hull, face, low, low+length*0.002, 0.73, 0.83, "edge", 0.25*detail, 0.04*detail)
+
+    # Paired angular sensor spars give the prow its characteristic split tip.
+    for side in (-1, 1):
+        spar = MeshBuilder()
+        add_faceted_shell(spar, [(length*0.86, radius*0.10, radius*0.14),
+                                (length*0.96, radius*0.085, radius*0.11),
+                                (length*1.015, radius*0.065, radius*0.045)], "panel")
+        offset = (side * radius * hull["taper"] * 0.66, 0, 0)
+        start = len(builder.verts)
+        builder.verts.extend(_add(vertex, offset) for vertex in spar.verts)
+        builder.faces.extend(tuple(index+start for index in face) for face in spar.faces)
+        builder.materials.extend(spar.materials)
+        for lateral, end in ((0, 1.07), (side*radius*0.055, 1.045)):
+            a = (offset[0]+lateral, 0, length*0.975)
+            b = (a[0], 0, length*end)
+            _cylinder(builder, a, b, 0.065*detail, "edge", facets=8)
+            _cylinder(builder, a, _lerp(a,b,0.35), 0.13*detail, "dark", facets=8)
+
+    # Small recessed RCS nozzles at bow and stern, set into armor blocks.
+    for z_fraction in (0.10, 0.80):
+        for face in (0, 2, 4, 6):
+            p = _skin_point(hull, face, length*z_fraction, 0.5, 0.20*detail)
+            normal = _unit((p[0], p[1]/0.74**2, 0))
+            axis, u, v = _basis_for(normal)
+            _box(builder, p, (0.85*detail, 1.35*detail, 0.35*detail), "panel", (u,v,axis))
+            for offset in (-0.34, 0.34):
+                nozzle = _add(p, _scale(v, offset*detail))
+                _tube(builder, nozzle, _add(nozzle, _scale(normal, 0.32*detail)),
+                      0.22*detail, 0.15*detail, "edge", facets=12)
     return [tag(mesh_from("hull_body", builder), "hull_body")]
 
 

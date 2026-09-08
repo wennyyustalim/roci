@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# The short way in. `roci demo` from anywhere: loads .env, runs inside the venv.
+#   ln -s "$PWD/bin/roci" ~/.local/bin/roci   (once)
+set -euo pipefail
+root="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOURCE[0]}")")/.." && pwd)"
+cd "$root"
+if [[ -f .env ]]; then
+  exec uv run --env-file .env roci "$@"
+fi
+exec uv run roci "$@"
