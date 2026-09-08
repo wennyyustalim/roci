@@ -49,6 +49,7 @@ SHIP_GEOMETRY_PARTS = {
     "drive.cone_length_m": ("drive_*",),
     "drive.cone_radius_m": ("drive_*",),
     "weapons.torpedo_tubes": ("tube_*",),
+    "weapons.tube_station": ("tube_*",),
     "weapons.pdc_mounts": ("pdc_*",),
 }
 
@@ -146,7 +147,7 @@ def diff_ships(before: ShipSpec, after: ShipSpec, tolerance: float = 1e-9) -> Sp
         part = SHIP_PART_OF_PREFIX.get(root)
         # Most weapons fields have no visible assembly in the generated ship.
         if root == "weapons":
-            if "torpedo_tubes" in path:
+            if "torpedo_tubes" in path or "tube_station" in path:
                 part = "tube_*"
             elif "pdc_mounts" in path:
                 part = "pdc_*"

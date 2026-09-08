@@ -71,7 +71,9 @@ How the levers work:
   after adding dry mass, raise propellant enough to preserve that ratio.
 - Torpedo capacity is the magazine volume divided by one torpedo, plus one in
   each tube. Magazine volume comes out of the hull, so it competes with
-  everything else inside it.
+  everything else inside it. `weapons.tube_station` is where the launch tubes
+  mount along the hull (fraction of length from the stern; 0.9 is the bow,
+  0.5 amidships). Move it when asked to relocate the tubes.
 - The crew are a design bound, not a display. A ship that can pull more g than
   its weakest crew member survives is only usable to that limit.
 - A longer, wider hull has more skin, and skin is mass before armour is added.

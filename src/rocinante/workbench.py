@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
 from rocinante.blend import launch_live_ship
-from rocinante.demo import open_openrocket
+from rocinante.demo import Bounds, open_openrocket
 from rocinante.diff import diff_ships, ship_geometry_parts
 from rocinante.flight import plan
 from rocinante.handoff import export_baseline, export_pair, share_url, verified_pair
@@ -27,7 +29,19 @@ PRESETS = {
     "armor": "Add 2 cm of hull armor and show the performance cost",
     "drive": "Lengthen the drive cone by 4 m; keep engine performance unchanged",
     "fins": "Give the torpedoes larger, swept fins for a stable launch",
+    "bow": "Move the launch tubes forward to the bow",
 }
+
+# What the demo suggests typing. Each one is a torpedo-equipping ask Astra can
+# answer inside the ShipSpec contract.
+SAMPLE_ASKS = [
+    ("Carry eight more torpedoes by adding two launch tubes and six magazine slots, "
+     "without losing cruise burn time"),
+    "Move the launch tubes forward to the bow and add two more",
+    "Give the torpedoes four larger swept fins and a longer nose for a stable launch",
+    "Switch the torpedo motor to a 29 mm F-class and lengthen the booster tube to fit it",
+    "Add 2 cm of hull armor and show the performance cost",
+]
 
 
 def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
@@ -53,6 +67,12 @@ def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
         after.rationale = (
             "Fixture: extend the cone by 4 m. This geometry-only change does not alter "
             "thrust or exhaust velocity in the current engineering model."
+        )
+    elif preset == "bow":
+        after.weapons.tube_station = 0.88
+        after.rationale = (
+            "Fixture: mount the launch tubes at the bow. Placement only; mass and "
+            "performance are unchanged, and Blender moves the tube cassettes."
         )
     elif preset == "fins":
         fins = after.torpedo.fins
@@ -87,6 +107,11 @@ class Workbench:
         show_blender: bool = False,
         show_openrocket: bool = False,
         auto_export: bool = False,
+        auto_accept: bool = False,
+        auto_share: bool = False,
+        on_share_url: Callable[[str], None] | None = None,
+        blender_geometry: list[str] | None = None,
+        openrocket_bounds: Bounds | None = None,
     ):
         self.out = out
         self.live = live
@@ -95,6 +120,15 @@ class Workbench:
         # Regenerate real Blender geometry for every revision so the viewer
         # never has to fall back to its schematic. Under a second per hull.
         self.auto_export = auto_export
+        # The demo has no review step: every proposal becomes the ship.
+        self.auto_accept = auto_accept
+        # Upload each revision's comparison to Kord in the background.
+        self.auto_share = auto_share and auto_export
+        self.on_share_url = on_share_url
+        self.blender_geometry = blender_geometry
+        self.openrocket_bounds = openrocket_bounds
+        # The share thread and the HTTP handler both touch `state`.
+        self.lock = threading.RLock()
         self.path = out / "workbench.json"
         self.blender_spec_path = out / "blender-current.json"
         self.torpedo_dir = out / "torpedo"
@@ -127,7 +161,7 @@ class Workbench:
             self.export_baseline()
         self.publish_current()
         if self.show_blender:
-            launch_live_ship(self.blender_spec_path)
+            launch_live_ship(self.blender_spec_path, self.blender_geometry)
 
     def publish_current(self):
         """Push the design under review to Blender and OpenRocket."""
@@ -150,7 +184,7 @@ class Workbench:
             ship.torpedo.model_copy(update={"name": name}), self.torpedo_dir / f"v{index:04d}.ork"
         )
         if self.show_openrocket and digest != self._torpedo_shown:
-            open_openrocket(self.torpedo_path, name)
+            open_openrocket(self.torpedo_path, name, self.openrocket_bounds)
             self._torpedo_shown = digest
 
     def export_baseline(self):
@@ -190,7 +224,9 @@ class Workbench:
         return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS,
                 "model": model_name() if self.live else None,
                 "kord_base": KordClient().base_url,
-                "openrocket": self.show_openrocket,
+                "openrocket": self.show_openrocket, "blender": self.show_blender,
+                "auto_accept": self.auto_accept, "auto_share": self.auto_share,
+                "sample_asks": SAMPLE_ASKS,
                 "torpedo_file": str(self.torpedo_path) if self.torpedo_path else None}
 
     def revision(self, payload: dict):
@@ -223,17 +259,32 @@ class Workbench:
             return self.snapshot()  # Repeated clicks do not create another share.
         if handoff.get("status") not in ("exported", "share_failed"):
             raise ValueError("Export the comparison before sharing it")
-        before, after = verified_pair(self.out, handoff["artifacts"])
-        handoff.update(status="sharing", error=None)
+        parent = self.state["iterations"][current["parent"]]
+        if current.get("geometry_changed_parts") or not current["torpedo"].get("changed"):
+            before, after = verified_pair(self.out, handoff["artifacts"])
+            what = "ship"
+        else:
+            # Only the torpedo moved: compare the torpedoes themselves.
+            before = self.torpedo_dir / f"v{parent['index']:04d}.ork"
+            after = self.torpedo_dir / f"v{current['index']:04d}.ork"
+            if not before.is_file():
+                write_ork(ShipSpec.model_validate(parent["spec"]).torpedo, before)
+            what = "torpedo"
+        handoff.update(status="sharing", error=None, compared=what)
         self.save()
         kord = KordClient()
         try:
             result = kord.share_diff(
                 before, after,
-                title=f"{current['name']} v{current['parent']} → v{current['index']} ({current.get('source', 'proposal')})",
+                title=f"{current['name']} {what} v{current['parent']} → v{current['index']} ({current.get('source', 'proposal')})",
             )
             handoff.update(status="shared", share_url=share_url(kord.base_url, result.get("url", "")),
                            expires_at=result.get("expiresAt"))
+            if self.on_share_url:
+                try:
+                    self.on_share_url(handoff["share_url"])
+                except Exception:
+                    logging.getLogger(__name__).exception("Kord window navigation failed")
         except Exception:
             handoff.update(status="share_failed", error=(
                 "Kord sharing failed. Your export and proposal are saved. "
@@ -263,16 +314,28 @@ class Workbench:
             after = fixture_proposal(ship, preset)
         result = RefitResult(ask=ask, before=ship, after=after, diff=diff_ships(ship, after))
         index = len(self.state["iterations"])
-        entry = self.entry(after, index, "pending", result)
+        entry = self.entry(after, index, "approved" if self.auto_accept else "pending", result)
         entry.update(parent=parent, ask=ask, source="live" if self.live else "fixture")
         if self.live:
             entry["model"] = model_name()
         self.state["iterations"].append(entry)
+        if self.auto_accept:
+            self.state["accepted"] = index
         self.save()
         self.publish_current()
         if self.auto_export:
             self.export({"index": index})
+            if self.auto_share and entry.get("handoff", {}).get("status") == "exported":
+                threading.Thread(target=self._share_in_background, args=(index,),
+                                 name=f"kord-share-v{index}", daemon=True).start()
         return self.snapshot()
+
+    def _share_in_background(self, index: int):
+        with self.lock:
+            try:
+                self.share({"index": index})
+            except Exception:
+                logging.getLogger(__name__).exception("Background Kord share failed")
 
     def decide(self, payload: dict):
         current = self.state["iterations"][-1]
@@ -303,9 +366,14 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
             self.end_headers()
             self.wfile.write(data)
 
+        def log_message(self, format, *args):
+            if not args or not str(args[0]).startswith("GET /api/state"):
+                super().log_message(format, *args)
+
         def do_GET(self):
             if self.path == "/api/state":
-                return self.reply(200, workbench.snapshot())
+                with workbench.lock:
+                    return self.reply(200, workbench.snapshot())
             if self.path.startswith("/exports/"):
                 # Only generated, known artifacts; never expose the workspace.
                 parts = self.path.split("/")
@@ -339,16 +407,17 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise TypeError("Expected a JSON object")
-                if self.path == "/api/propose":
-                    state = workbench.propose(payload)
-                elif self.path == "/api/decide":
-                    state = workbench.decide(payload)
-                elif self.path == "/api/export":
-                    state = workbench.export(payload)
-                elif self.path == "/api/share":
-                    state = workbench.share(payload)
-                else:
-                    return self.reply(404, {"error": "Not found"})
+                with workbench.lock:
+                    if self.path == "/api/propose":
+                        state = workbench.propose(payload)
+                    elif self.path == "/api/decide":
+                        state = workbench.decide(payload)
+                    elif self.path == "/api/export":
+                        state = workbench.export(payload)
+                    elif self.path == "/api/share":
+                        state = workbench.share(payload)
+                    else:
+                        return self.reply(404, {"error": "Not found"})
                 self.reply(200, state)
             except RefitModelError as exc:
                 self.reply(502, {"error": f"{exc}. The accepted design is preserved."})

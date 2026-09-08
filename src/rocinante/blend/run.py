@@ -101,7 +101,7 @@ def build_ship_mesh(spec: ShipSpec, out_path: str | Path, timeout: int = 240) ->
     return out_path
 
 
-def launch_live_ship(spec_path: str | Path) -> subprocess.Popen:
+def launch_live_ship(spec_path: str | Path, geometry: list[str] | None = None) -> subprocess.Popen:
     """Open Blender's persistent, auto-refreshing Roci scene.
 
     ``spec_path`` is deliberately a file, rather than an IPC endpoint: it
@@ -111,7 +111,8 @@ def launch_live_ship(spec_path: str | Path) -> subprocess.Popen:
     path = Path(spec_path).resolve()
     log_file = path.with_name("blender-live.log").open("w")
     return subprocess.Popen(
-        [blender_bin(), "--factory-startup", "--python", str(LIVE_SHIP_SCRIPT), "--", str(path)],
+        [blender_bin(), "--factory-startup", *(geometry or []),
+         "--python", str(LIVE_SHIP_SCRIPT), "--", str(path)],
         stdout=log_file,
         stderr=subprocess.STDOUT,
     )

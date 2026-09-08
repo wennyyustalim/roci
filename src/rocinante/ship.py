@@ -85,6 +85,9 @@ class Weapons(BaseModel):
     railgun: bool = True
     railgun_t: float = Field(default=60.0, ge=0)
     torpedo_tubes: int = Field(default=4, ge=0, le=32)
+    # Where the launch tubes mount, as a fraction of hull length from the
+    # stern: 0.9 is right at the bow, 0.5 amidships.
+    tube_station: float = Field(default=0.70, ge=0.35, le=0.92)
     magazine_m3: float = Field(default=76.8, ge=0)
     torpedo_volume_m3: float = Field(default=4.8, gt=0)
     torpedo_mass_t: float = Field(default=2.4, gt=0)

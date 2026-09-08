@@ -195,7 +195,7 @@ def test_export_and_share_keep_the_accepted_parent_after_a_rejection(
     assert before == state["iterations"][1]["spec"]
     assert after == state["iterations"][3]["spec"]
     assert after["hull"]["armor_cm"] == before["hull"]["armor_cm"]
-    assert shared["title"] == "Rocinante v1 → v3 (fixture)"
+    assert shared["title"] == "Rocinante ship v1 → v3 (fixture)"
     assert state["accepted"] == 1
     assert state["iterations"][3]["status"] == "pending"
 
@@ -335,7 +335,7 @@ def test_share_url_rejects_non_web_links():
 
 def test_torpedo_rides_with_the_ship_and_reaches_openrocket(tmp_path, monkeypatch):
     opened = []
-    monkeypatch.setattr("rocinante.workbench.open_openrocket", lambda path, name: opened.append((path, name)))
+    monkeypatch.setattr("rocinante.workbench.open_openrocket", lambda path, name, bounds=None: opened.append((path, name)))
     bench = Workbench(tmp_path, show_openrocket=True)
     assert opened == [(tmp_path / "torpedo" / "v0000.ork", "Rocinante torpedo v0")]
     assert bench.state["iterations"][0]["torpedo"]["fins"] == ROCINANTE.torpedo.fins.count
@@ -371,3 +371,27 @@ def test_auto_export_gives_the_viewer_real_geometry_for_every_revision(tmp_path,
     reloaded = Workbench(tmp_path, auto_export=True).state["iterations"]
     assert reloaded[0]["handoff"]["artifacts"] == baseline["artifacts"]
     assert reloaded[1]["handoff"]["status"] == "exported"
+
+
+def test_demo_mode_accepts_every_ask_and_shares_the_right_pair(tmp_path, monkeypatch, fake_blender):
+    shared, shown = [], []
+    client = Mock(base_url="https://work.withkord.com")
+    client.share_diff.side_effect = lambda before, after, title: (
+        shared.append((before.name, after.name, title)) or {"url": f"/d/{len(shared)}"}
+    )
+    monkeypatch.setattr("rocinante.workbench.KordClient", lambda: client)
+    monkeypatch.setattr("rocinante.workbench.threading.Thread",
+                        lambda target, args, name, daemon: Mock(start=lambda: target(*args)))
+    bench = Workbench(tmp_path, auto_export=True, auto_accept=True, auto_share=True,
+                      on_share_url=shown.append)
+    fins = bench.propose({"preset": "fins"})["iterations"][-1]
+    assert fins["status"] == "approved" and bench.state["accepted"] == 1
+    assert shared[-1] == ("v0000.ork", "v0001.ork", "Rocinante torpedo v0 → v1 (fixture)")
+    assert fins["handoff"]["compared"] == "torpedo"
+    tubes = bench.propose({"preset": "torpedoes"})["iterations"][-1]
+    assert tubes["parent"] == 1 and bench.state["accepted"] == 2
+    assert shared[-1] == ("before.glb", "after.glb", "Rocinante ship v1 → v2 (fixture)")
+    assert shown == ["https://work.withkord.com/d/1", "https://work.withkord.com/d/2"]
+    bow = bench.propose({"preset": "bow"})["iterations"][-1]
+    assert bow["geometry_changed_parts"] == ["tube_*"]
+    assert bow["spec"]["weapons"]["tube_station"] == 0.88

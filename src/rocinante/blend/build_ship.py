@@ -526,7 +526,7 @@ def build_tubes(spec):
     for index in range(count):
         side = 1 if index % 2 == 0 else -1
         row, column = divmod(index//2, columns)
-        z = hull["length_m"] * (0.70 - row * 0.10 / rows)
+        z = hull["length_m"] * (weapons.get("tube_station", 0.70) - row * 0.10 / rows)
         rx, _ry = hull_radius_at(hull, z)
         spacing = min(1.65, rx * 0.95 / columns)
         x = (column - (columns - 1) / 2) * spacing

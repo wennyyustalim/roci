@@ -263,16 +263,30 @@ def demo(
     chrome: bool = typer.Option(True, "--chrome/--no-chrome", help="Open the workbench in Chrome."),
     blender: bool = typer.Option(True, "--blender/--no-blender", help="Show the live Roci in Blender."),
     openrocket: bool = typer.Option(
-        True, "--openrocket/--no-openrocket", help="Open the latest torpedo in OpenRocket."
+        True, "--openrocket/--no-openrocket", help="Open the current torpedo in OpenRocket."
+    ),
+    share: bool = typer.Option(
+        True, "--share/--no-share", help="Upload every revision to Kord and show it in its window."
+    ),
+    layout: bool = typer.Option(
+        True, "--layout/--no-layout", help="Tile the four windows into screen quadrants."
     ),
 ) -> None:
-    """The one command: serve the workbench and open Chrome, Blender and OpenRocket.
+    """The one command: web UI | OpenRocket over Blender | Kord, and Astra arming the ship.
 
-    Blender tracks the design under review and regenerates it on every proposal.
-    OpenRocket gets the newest torpedo written fresh from its spec.
+    Every ask becomes the ship. Blender rebuilds the hull, OpenRocket reopens
+    the torpedo when it changed, and Kord gets the comparison in the background.
     """
     from rocinante.agent.refit import model_name
-    from rocinante.demo import open_browser, openrocket_available
+    from rocinante.demo import (
+        blender_geometry,
+        chrome_open_window,
+        chrome_set_url,
+        open_browser,
+        openrocket_available,
+        quadrants,
+        screen_size,
+    )
     from rocinante.workbench import Workbench, make_server
 
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
@@ -284,10 +298,24 @@ def demo(
             "or pass --fixture."
         )
     os.environ["KORD_API_BASE"] = kord
-
     openrocket = openrocket and openrocket_available()
-    bench = Workbench(out, live=live, show_blender=blender, show_openrocket=openrocket,
-                      auto_export=True)
+
+    width, height = screen_size()
+    quads = quadrants(width, height) if layout else {}
+    kord_window: list[int | None] = [None]
+
+    def show_in_kord(url: str) -> None:
+        kord_window[0] = kord_window[0] if kord_window[0] is not None else None
+        if chrome:
+            chrome_set_url(kord_window[0], url)
+
+    bench = Workbench(
+        out, live=live, show_blender=blender, show_openrocket=openrocket,
+        auto_export=True, auto_accept=True, auto_share=share,
+        on_share_url=show_in_kord,
+        blender_geometry=blender_geometry(quads["blender"], height) if layout else None,
+        openrocket_bounds=quads.get("openrocket"),
+    )
     try:
         server = make_server(bench, port)
     except OSError as exc:
@@ -296,16 +324,24 @@ def demo(
         raise typer.Exit(1) from exc
 
     url = f"http://127.0.0.1:{port}/"
+    last_share = next((it["handoff"]["share_url"] for it in reversed(bench.state["iterations"])
+                       if it.get("handoff", {}).get("share_url")), None)
     table = Table("Window", "Shows", "Detail")
     table.add_row("Workbench", url, f"{'live ' + model_name() if live else 'fixture presets'}; "
                   f"state in {out / 'workbench.json'}")
     if chrome:
-        table.add_row(open_browser(url), "review UI", url)
+        if layout:
+            chrome_open_window(url, quads["ui"])
+            kord_window[0] = chrome_open_window(last_share or kord, quads["kord"])
+        else:
+            open_browser(url)
+        table.add_row("Chrome", "torpedo bay UI", url)
+        table.add_row("Chrome", "Kord comparison", last_share or f"{kord} (first share lands here)")
     if blender:
-        table.add_row("Blender", "ship under review", f"watching {out / 'blender-current.json'}")
-    table.add_row("OpenRocket", "torpedo under review" if openrocket else "NOT INSTALLED",
+        table.add_row("Blender", "the ship, live", f"watching {out / 'blender-current.json'}")
+    table.add_row("OpenRocket", "the torpedo, live" if openrocket else "NOT INSTALLED",
                   f"{bench.torpedo_path}; reopens when a refit changes the torpedo")
-    table.add_row("Kord", "shared comparisons", kord)
+    table.add_row("Kord", "auto-shared" if share else "manual share", kord)
     console.print(table)
     console.print("[dim]Ctrl-C stops the server; the app windows stay open.[/]")
     try:

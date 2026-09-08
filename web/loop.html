@@ -3,53 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rocinante · Refit workbench</title>
+  <title>Rocinante · Torpedo bay</title>
   <link rel="stylesheet" href="loop.css">
 </head>
 <body>
-  <header><div><span class="eyebrow">ENGINEERING / LOCAL REVIEW</span><h1>Rocinante <span>Refit workbench</span></h1></div><span id="mode" class="badge">Connecting</span></header>
-  <section class="command">
+  <div id="canvas" aria-label="The Rocinante in space"></div>
+  <div id="scene-error" role="alert" hidden></div>
+
+  <header class="hud">
+    <div><span class="eyebrow">ROCINANTE / TORPEDO BAY</span><h1 id="title">Rocinante</h1><p id="comparison"></p></div>
+    <span id="mode" class="badge">Connecting</span>
+  </header>
+
+  <aside class="panel">
     <form id="proposal">
-      <label for="preset">01 / Intent</label>
-      <select id="preset" aria-label="Fixture refit"></select>
-      <input id="ask" maxlength="2000" placeholder="Describe a ship refit…" aria-label="Refit request" hidden>
-      <button id="propose" type="submit">Propose refit →</button>
+      <label for="ask" class="eyebrow">Arm the ship</label>
+      <select id="preset" aria-label="Fixture refit" hidden></select>
+      <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>
+      <div id="samples" class="chips" aria-label="Sample requests"></div>
+      <button id="propose" type="submit">Ask Astra →</button>
     </form>
-    <p id="status" role="status" aria-live="polite">Loading the baseline…</p>
-  </section>
-  <main>
-    <aside class="history"><span class="eyebrow">02 / Revisions</span><nav id="timeline" aria-label="Revision history"></nav><p class="note">Approve to make a revision the starting point for the next refit. Rejected proposals stay in history.</p></aside>
-    <section id="stage" aria-label="Interactive ship geometry comparison">
-      <div class="stage-label"><span class="eyebrow">03 / Geometry comparison</span><h2 id="title">Baseline</h2><p id="comparison"></p><p id="geometry-note"></p><span id="geometry-source">Schematic preview</span></div>
-      <div id="canvas"></div>
-      <div id="scene-error" role="alert" hidden></div>
-      <div class="legend"><span>● Current</span><span class="accent">● Geometry edit</span><span class="affected">● Input-only edit</span><span class="muted">○ Previous</span></div>
-      <div class="controls"><label><input id="ghost" type="checkbox" checked> Previous hull</label><label><input id="highlight" type="checkbox" checked> Changes</label><label><input id="rotate" type="checkbox"> Rotate</label><button id="fit">Fit view</button></div>
-    </section>
-    <aside class="detail">
-      <span class="eyebrow">04 / Computed consequences</span>
-      <p id="rationale"></p>
-      <dl id="metrics"></dl>
-      <h3>Torpedo <span>flown in OpenRocket</span></h3>
-      <dl id="torpedo"></dl><p id="torpedo-note" class="note"></p>
-      <div id="review"><span class="eyebrow">05 / Human decision</span><p id="verdict"></p><div class="actions"><button id="approve">Approve revision</button><button id="reject" class="secondary">Reject</button></div></div>
-      <a id="download" download="ship.json">Download selected spec ↓</a>
-      <section id="handoff">
-        <h3>06 / Kord comparison</h3>
-        <p id="handoff-status" role="status">Select a proposal to export.</p>
-        <div class="actions"><button id="export" class="secondary">Export comparison</button><button id="share" class="secondary">Share with Kord</button></div>
-        <p id="share-destination" class="note"></p>
-        <div id="artifacts" class="artifact-links" hidden></div>
-        <a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>Open Kord comparison ↗</a>
-        <p class="note">Sharing uploads both GLBs and creates a public comparison link. Local approval does not set a Kord verdict.</p>
-      </section>
-      <h3>Tycho → Ceres <span>⅓ g cruise</span></h3>
-      <dl id="mission"></dl><ul id="warnings"></ul>
-      <p class="note">Fixed route and acceleration: arrival stays constant. Fuel margin and feasibility change with the spec. Endurance uses a conservative initial-mass estimate.</p>
-      <h3>Spec changes</h3><ul id="changes"></ul>
-    </aside>
-  </main>
-  <footer>Exported Blender geometry when available · schematic fallback · engineering estimates · local decisions saved to disk · explicit Kord sharing</footer>
+    <p id="status" role="status" aria-live="polite">Loading the ship…</p>
+
+    <ol id="progress" aria-label="Propagation">
+      <li data-step="astra"><span>Astra</span><em></em></li>
+      <li data-step="physics"><span>Physics</span><em></em></li>
+      <li data-step="blender"><span>Blender</span><em></em></li>
+      <li data-step="openrocket"><span>OpenRocket</span><em></em></li>
+      <li data-step="kord"><span>Kord</span><em></em><a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>open ↗</a></li>
+    </ol>
+    <p id="rationale"></p>
+
+    <h3>Torpedo <span>in OpenRocket</span></h3>
+    <dl id="torpedo"></dl>
+    <h3>Ship <span>computed from the spec</span></h3>
+    <dl id="metrics"></dl>
+    <h3>Spec changes</h3><ul id="changes"></ul>
+  </aside>
+
+  <div class="controls">
+    <label><input id="ghost" type="checkbox" checked> Previous hull</label>
+    <label><input id="highlight" type="checkbox" checked> Changes</label>
+    <label><input id="rotate" type="checkbox"> Rotate</label>
+    <button id="fit" type="button">Fit view</button>
+    <span id="geometry-source"></span>
+  </div>
+
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
   <script type="module" src="loop.js"></script>
 </body>
