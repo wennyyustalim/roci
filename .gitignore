@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.local
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Build products of the design loop
+out/
+!out/.gitkeep
+*.blend1
+vendor/
+
+# Reference stills. Model from them; do not commit them.
+reference/

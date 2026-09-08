@@ -1,0 +1,37 @@
+[project]
+name = "rocinante"
+version = "0.1.0"
+description = "An agent that designs model rockets, simulates them, and files each iteration as a reviewable version with a 3D diff."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.9",
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13.7",
+    "openai>=1.50",
+]
+
+[project.optional-dependencies]
+openrocket = ["orhelper>=0.1.3", "jpype1>=1.5"]
+rocketpy = ["rocketpy>=1.4"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+rocinante = "rocinante.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rocinante"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# typer's whole API is calls in argument defaults.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

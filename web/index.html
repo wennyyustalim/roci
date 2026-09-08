@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rocinante</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Rocinante</h1>
+  <p id="goal"></p>
+</header>
+
+<main>
+  <aside id="timeline"></aside>
+
+  <section id="stage">
+    <div id="canvas"></div>
+    <div id="hud">
+      <label><input type="checkbox" id="ghost" checked> Ghost previous</label>
+      <label><input type="checkbox" id="highlight" checked> Highlight changes</label>
+      <label><input type="range" id="wipe" min="0" max="100" value="100"> Blend</label>
+    </div>
+  </section>
+
+  <aside id="detail">
+    <h2 id="version">—</h2>
+    <p id="rationale"></p>
+    <dl id="metrics"></dl>
+    <h3>Changed</h3>
+    <ul id="changes"></ul>
+    <a id="review" href="#" hidden>Open review session →</a>
+  </aside>
+</main>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+}}
+</script>
+<script type="module" src="viewer.js"></script>
+</body>
+</html>
