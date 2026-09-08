@@ -116,13 +116,17 @@ class RocketSpec(BaseModel):
 
 
 def baseline_torpedo() -> RocketSpec:
-    """The torpedo the Roci carries until a refit changes it. A stable 3FNC on an E motor."""
+    """A segmented, torpedo-shaped demo round at model scale (not flight validated)."""
     return RocketSpec(
-        name="Torpedo",
-        nose=NoseCone(shape=NoseShape.OGIVE, length_m=0.10, base_radius_m=0.0125),
-        body=[BodyTube(name="Payload", length_m=0.20, outer_radius_m=0.0125),
-              BodyTube(name="Booster", length_m=0.25, outer_radius_m=0.0125)],
-        fins=FinSet(count=3, root_chord_m=0.06, tip_chord_m=0.03, height_m=0.045, sweep_m=0.03),
+        name="Torpedo Mk VI",
+        nose=NoseCone(shape=NoseShape.ELLIPSOID, length_m=0.10, base_radius_m=0.028),
+        body=[BodyTube(name=name, length_m=length, outer_radius_m=0.028)
+              for name, length in [("Guidance", .05), ("Payload", .10),
+                                   ("Avionics", .055), ("Power", .055),
+                                   ("Coupler", .03), ("Booster", .16)]],
+        fins=FinSet(count=4, root_chord_m=.065, tip_chord_m=.028, height_m=.018,
+                    sweep_m=.025, thickness_m=.002, offset_from_aft_m=.012,
+                    cross_section=FinCrossSection.AIRFOIL),
         motor=Motor(designation="E12", diameter_mm=24, length_mm=70),
     )
 

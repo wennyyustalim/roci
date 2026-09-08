@@ -5,7 +5,7 @@ from rocinante.spec import FinSet, baseline_torpedo
 
 BASELINE = baseline_torpedo().model_copy(update={
     "name": "Baseline",
-    "rationale": "Hand-built starting point: a stable 3FNC on a 24 mm E motor.",
+    "rationale": "Segmented torpedo demo with four compact fins and a 24 mm E motor; flight unvalidated.",
 })
 
 # Deliberately marginal. Good for showing the agent fix something.

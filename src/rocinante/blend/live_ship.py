@@ -14,8 +14,17 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from build_ship import (add_lights, apply_materials, build_decks, build_drive, build_hull,
-                        build_pdcs, build_tubes, frame_camera, frame_viewports)
+from build_ship import (
+    add_lights,
+    apply_materials,
+    build_decks,
+    build_drive,
+    build_hull,
+    build_pdcs,
+    build_tubes,
+    frame_camera,
+    frame_viewports,
+)
 from torpedoes import build_loaded_torpedoes
 
 SPEC_PATH = Path(sys.argv[sys.argv.index("--") + 1])
@@ -30,7 +39,8 @@ ship_span, ship_center = 50, (0, 0, 0)
 def clear_live_scene():
     """Remove only generated scene data; retain the application and its viewports."""
     for obj in list(bpy.data.objects):
-        if obj.get("rocinante_part") or obj.name in {"camera", "focus", "key", "rim"}:
+        startup_default = last_digest is None and "--factory-startup" in sys.argv and obj.name in {"Cube", "Camera", "Light"}
+        if obj.get("rocinante_part") or obj.name in {"camera", "focus", "key", "rim"} or startup_default:
             bpy.data.objects.remove(obj, do_unlink=True)
     for mesh in list(bpy.data.meshes):
         if mesh.users == 0:
@@ -127,7 +137,7 @@ def refresh():
         if rebuilt or command["request_id"] != last_request:
             focus(command)
             last_request = command["request_id"]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- report a failed update without killing Blender
         print(f"Rocinante live scene: {exc}")
         if 'command' in locals():
             acknowledge(command, "error", str(exc))
@@ -137,6 +147,7 @@ def refresh():
 # Upgrade older live scripts too, whose timers predate the named registry.
 import gc
 import types
+
 for callback in gc.get_objects():
     if (isinstance(callback, types.FunctionType) and callback.__name__ == "refresh"
             and callback.__code__.co_filename == str(Path(__file__).resolve())

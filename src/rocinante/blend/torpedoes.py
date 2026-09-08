@@ -1,7 +1,7 @@
 """Physical-size loaded rounds; no detached or enlarged presentation model."""
 import bpy
-from mathutils import Vector
 from build_rocket import build_fins, build_nose, build_tube
+from mathutils import Vector
 
 
 def build_loaded_torpedoes(spec, tubes, overrides=None):

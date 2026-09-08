@@ -5,10 +5,10 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from rocinante.demo import open_openrocket
 
@@ -81,7 +81,7 @@ def show_in_openrocket(path: Path, selection: Path, bounds=None) -> dict:
         for attempt in range(20):
             result = subprocess.run([str(java / "java"), "--add-modules", "jdk.attach", "-cp", str(jar),
                                      "RocinanteAttach", str(pids[0]), str(jar.resolve()), str(props.resolve())],
-                                    capture_output=True, text=True, timeout=15)
+                                    capture_output=True, text=True, timeout=15, check=False)
             if result.returncode == 0:
                 _attached.add(key)
                 break

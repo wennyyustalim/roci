@@ -73,6 +73,9 @@ web UI   | OpenRocket
 Blender  | Kord
 ```
 
+Stop it with Ctrl-C in its terminal, or use `bin/roci kill` if it was detached.
+For a demo started with a custom port, pass the same port to `kill --port`.
+
 A torpedo request updates the design file in OpenRocket and automatically
 shares the previous/revised `.ork` pair with Kord. The Kord browser follows
 the saved comparison link. Select the target torpedo first in builds that

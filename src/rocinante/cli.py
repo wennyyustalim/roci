@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -246,6 +247,57 @@ def _baseline():
 
 
 PUBLIC_KORD = "https://work.withkord.com"
+
+
+def _listener_pids(port: int) -> list[int]:
+    """Return processes listening on a TCP port (macOS and other lsof systems)."""
+    try:
+        found = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return []
+    return [int(line) for line in found.stdout.splitlines() if line.strip().isdigit()]
+
+
+def _process_command(pid: int) -> str:
+    found = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return found.stdout.strip()
+
+
+def _is_demo_command(command: str) -> bool:
+    words = command.split()
+    return any(
+        Path(word).name in {"roci", "rocinante"} and words[index + 1] == "demo"
+        for index, word in enumerate(words[:-1])
+    )
+
+
+@app.command()
+def kill(port: int = typer.Option(3001, "--port", "-p")) -> None:
+    """Stop a detached roci demo server without closing its app windows."""
+    pids = _listener_pids(port)
+    if not pids:
+        console.print(f"No demo server is listening on port {port}.")
+        return
+
+    demos = [(pid, _process_command(pid)) for pid in pids]
+    demos = [(pid, command) for pid, command in demos if _is_demo_command(command)]
+    if not demos:
+        console.print(f"[red]Refusing to stop port {port}:[/] its listener is not a roci demo.")
+        raise typer.Exit(1)
+
+    for pid, _ in demos:
+        os.kill(pid, signal.SIGTERM)
+        console.print(f"Stopped roci demo on port {port} (PID {pid}).")
 
 
 @app.command()
