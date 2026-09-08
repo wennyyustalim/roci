@@ -245,12 +245,32 @@ def _baseline():
 
 
 @app.command()
+def demo(
+    out: Path = typer.Option(Path("out/workbench"), "--out", "-o"),
+    port: int = typer.Option(3001, "--port", "-p"),
+    live: bool = typer.Option(False, "--live", help="Use the configured model instead of fixtures."),
+) -> None:
+    """Run the local, interactive ship refit and human review loop."""
+    from rocinante.workbench import Workbench, make_server
+
+    server = make_server(Workbench(out, live=live), port)
+    console.print(f"Workbench: http://127.0.0.1:{port}/ ({'live model' if live else 'fixtures'})")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+@app.command()
 def viewer(
     out: Path = typer.Option(Path("out"), "--out", "-o"),
     port: int = typer.Option(8000, "--port", "-p"),
 ) -> None:
     """Serve the 3D diff viewer over the latest run."""
     web = Path(__file__).parent.parent.parent / "web"
+    out.mkdir(parents=True, exist_ok=True)
     for f in web.iterdir():
         if f.is_file():
             shutil.copy(f, out / f.name)

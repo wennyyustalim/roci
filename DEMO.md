@@ -1,5 +1,14 @@
 # The demo
 
+**Skeleton available now:** run `uv run rocinante demo --port 3001` and open
+`http://127.0.0.1:3001/`. Propose the torpedo fixture → inspect → approve →
+propose armor → reject → propose the cone extension. This demonstrates the
+local review loop with simple shapes and computed numbers. It does not call
+the model or file with Kord. See the current milestones in [PLAN.md](PLAN.md).
+The stage script below is the target, not a statement of implemented scope.
+At fixed cruise acceleration, arrival time does not move with a refit;
+narrate the change in fuel margin and feasibility instead.
+
 Two deliverables, and they are not the same thing:
 
 - **A 60-second recorded video**, due 17:30 with the submission.

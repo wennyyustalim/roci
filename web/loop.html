@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocinante · Refit workbench</title>
+  <link rel="stylesheet" href="loop.css">
+</head>
+<body>
+  <header><div><span class="eyebrow">ENGINEERING / LOCAL REVIEW</span><h1>Rocinante <span>Refit workbench</span></h1></div><span id="mode" class="badge">Connecting</span></header>
+  <section class="command">
+    <form id="proposal">
+      <label for="preset">01 / Intent</label>
+      <select id="preset" aria-label="Fixture refit"></select>
+      <input id="ask" maxlength="2000" placeholder="Describe a ship refit…" aria-label="Refit request" hidden>
+      <button id="propose" type="submit">Propose refit →</button>
+    </form>
+    <p id="status" role="status" aria-live="polite">Loading the baseline…</p>
+  </section>
+  <main>
+    <aside class="history"><span class="eyebrow">02 / Revisions</span><nav id="timeline" aria-label="Revision history"></nav><p class="note">Approve to make a revision the starting point for the next refit. Rejected proposals stay in history.</p></aside>
+    <section id="stage" aria-label="Interactive ship geometry comparison">
+      <div class="stage-label"><span class="eyebrow">03 / Geometry comparison</span><h2 id="title">Baseline</h2><p id="comparison"></p></div>
+      <div id="canvas"></div>
+      <div id="scene-error" role="alert" hidden></div>
+      <div class="legend"><span>● Current</span><span class="accent">● Changed</span><span class="muted">○ Previous</span></div>
+      <div class="controls"><label><input id="ghost" type="checkbox" checked> Previous hull</label><label><input id="highlight" type="checkbox" checked> Changes</label><label><input id="rotate" type="checkbox" checked> Rotate</label><button id="fit">Fit view</button></div>
+    </section>
+    <aside class="detail">
+      <span class="eyebrow">04 / Computed consequences</span>
+      <p id="rationale"></p>
+      <dl id="metrics"></dl>
+      <h3>Tycho → Ceres <span>⅓ g cruise</span></h3>
+      <dl id="mission"></dl><ul id="warnings"></ul>
+      <p class="note">Fixed route and acceleration: arrival stays constant. Fuel margin and feasibility change with the spec. Endurance uses a conservative initial-mass estimate.</p>
+      <h3>Spec changes</h3><ul id="changes"></ul>
+      <div id="review"><span class="eyebrow">05 / Human decision</span><p id="verdict"></p><div class="actions"><button id="approve">Approve revision</button><button id="reject" class="secondary">Reject</button></div></div>
+      <a id="download" download="ship.json">Download selected spec ↓</a>
+    </aside>
+  </main>
+  <footer>Primitive geometry · engineering estimates · local decisions saved to disk · Kord filing is a separate CLI step</footer>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+  <script type="module" src="loop.js"></script>
+</body>
+</html>

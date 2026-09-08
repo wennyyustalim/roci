@@ -92,7 +92,10 @@ class Weapons(BaseModel):
     @property
     def torpedo_capacity(self) -> int:
         """Everything in the magazine, plus one sitting in each tube."""
-        return int(self.magazine_m3 // self.torpedo_volume_m3) + self.torpedo_tubes
+        # Decimal dimensions can land one ULP below an integer slot count.
+        # Float floor division otherwise turns 105.6 / 4.8 into 21 slots.
+        slots = math.floor(math.nextafter(self.magazine_m3 / self.torpedo_volume_m3, math.inf))
+        return slots + self.torpedo_tubes
 
     @property
     def mount_t(self) -> float:
