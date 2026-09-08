@@ -14,6 +14,13 @@ import sys
 from pathlib import Path
 
 import bpy
+
+# Blender does not add the executing script's directory to sys.path. Add it
+# explicitly so this interactive wrapper uses the same generator as GLB export.
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 from build_ship import (
     add_lights,
     apply_materials,
@@ -22,12 +29,19 @@ from build_ship import (
     build_hull,
     build_pdcs,
     build_tubes,
-    clear_scene,
     frame_camera,
 )
 
 SPEC_PATH = Path(sys.argv[sys.argv.index("--") + 1])
 last_digest: str | None = None
+
+
+def clear_live_scene():
+    """Clear generated data without resetting the interactive UI context."""
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    for mesh in list(bpy.data.meshes):
+        bpy.data.meshes.remove(mesh)
 
 
 def refresh():
@@ -42,7 +56,7 @@ def refresh():
         print(f"Rocinante live scene waiting for a valid spec: {exc}")
         return 1.0
 
-    clear_scene()
+    clear_live_scene()
     objects = (
         build_hull(spec)
         + build_drive(spec)

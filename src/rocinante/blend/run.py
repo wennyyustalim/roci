@@ -109,10 +109,11 @@ def launch_live_ship(spec_path: str | Path) -> subprocess.Popen:
     The Blender-side timer regenerates the mesh when its contents change.
     """
     path = Path(spec_path).resolve()
+    log_file = path.with_name("blender-live.log").open("w")
     return subprocess.Popen(
         [blender_bin(), "--factory-startup", "--python", str(LIVE_SHIP_SCRIPT), "--", str(path)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
     )
 
 
