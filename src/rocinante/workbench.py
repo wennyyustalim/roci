@@ -13,10 +13,12 @@ from pathlib import Path
 
 from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
 from rocinante.blend import launch_live_ship
+from rocinante.demo import open_openrocket
 from rocinante.diff import diff_ships, ship_geometry_parts
 from rocinante.flight import plan
-from rocinante.handoff import export_pair, share_url, verified_pair
+from rocinante.handoff import export_baseline, export_pair, share_url, verified_pair
 from rocinante.kord import KordClient
+from rocinante.ork import write_ork
 from rocinante.samples import ROCINANTE
 from rocinante.ship import ShipSpec
 
@@ -24,6 +26,7 @@ PRESETS = {
     "torpedoes": "Carry eight more torpedoes without losing cruise burn time",
     "armor": "Add 2 cm of hull armor and show the performance cost",
     "drive": "Lengthen the drive cone by 4 m; keep engine performance unchanged",
+    "fins": "Give the torpedoes larger, swept fins for a stable launch",
 }
 
 
@@ -51,22 +54,58 @@ def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
             "Fixture: extend the cone by 4 m. This geometry-only change does not alter "
             "thrust or exhaust velocity in the current engineering model."
         )
+    elif preset == "fins":
+        fins = after.torpedo.fins
+        fins.root_chord_m += 0.02
+        fins.tip_chord_m += 0.01
+        fins.height_m += 0.02
+        fins.sweep_m += 0.01
+        after.rationale = (
+            "Fixture: enlarge and sweep the torpedo fin set to move its centre of pressure "
+            "aft. The ship's mass and performance are unchanged; OpenRocket shows the new fins."
+        )
     else:
         raise ValueError("Choose a supported fixture preset")
     return ShipSpec.model_validate(after.model_dump())
 
 
+def torpedo_summary(ship: ShipSpec, changed: bool = False) -> dict:
+    """What the review panel says about the torpedo, beside the ship's numbers."""
+    t = ship.torpedo
+    return {
+        "length_m": t.total_length_m, "diameter_m": t.caliber_m, "fins": t.fins.count,
+        "fin_span_m": t.fins.height_m, "motor": f"{t.motor.manufacturer} {t.motor.designation}",
+        "changed": changed,
+    }
+
+
 class Workbench:
-    def __init__(self, out: Path, live: bool = False, show_blender: bool = False):
+    def __init__(
+        self,
+        out: Path,
+        live: bool = False,
+        show_blender: bool = False,
+        show_openrocket: bool = False,
+        auto_export: bool = False,
+    ):
         self.out = out
         self.live = live
         self.show_blender = show_blender
+        self.show_openrocket = show_openrocket
+        # Regenerate real Blender geometry for every revision so the viewer
+        # never has to fall back to its schematic. Under a second per hull.
+        self.auto_export = auto_export
         self.path = out / "workbench.json"
         self.blender_spec_path = out / "blender-current.json"
+        self.torpedo_dir = out / "torpedo"
+        self.torpedo_path: Path | None = None
+        self._torpedo_shown: str | None = None
         out.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
             for entry in self.state["iterations"]:
+                if "torpedo" not in entry:
+                    entry["torpedo"] = torpedo_summary(ShipSpec.model_validate(entry["spec"]))
                 if "geometry_changed_parts" not in entry:
                     parent = entry.get("parent")
                     entry["geometry_changed_parts"] = ship_geometry_parts(
@@ -84,18 +123,46 @@ class Workbench:
         else:
             self.state = {"accepted": 0, "iterations": [self.entry(ROCINANTE, 0, "approved")]}
             self.save()
-        self.refresh_blender()
+        if self.auto_export:
+            self.export_baseline()
+        self.publish_current()
         if self.show_blender:
             launch_live_ship(self.blender_spec_path)
 
-    def refresh_blender(self):
-        """Publish the design currently under review to the visible Blender scene."""
+    def publish_current(self):
+        """Push the design under review to Blender and OpenRocket."""
         current = self.state["iterations"][-1]
         if current["status"] == "rejected":
             current = self.state["iterations"][self.state["accepted"]]
         temporary = self.blender_spec_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(current["spec"], indent=2))
         temporary.replace(self.blender_spec_path)
+        self.publish_torpedo(ShipSpec.model_validate(current["spec"]), current["index"])
+
+    # Blender watches the spec file itself; the old name survives for callers.
+    refresh_blender = publish_current
+
+    def publish_torpedo(self, ship: ShipSpec, index: int):
+        """One `.ork` per revision. OpenRocket is reopened only when the torpedo itself changed."""
+        digest = ship.torpedo.model_dump_json()
+        name = f"{ship.name} torpedo v{index}"
+        self.torpedo_path = write_ork(
+            ship.torpedo.model_copy(update={"name": name}), self.torpedo_dir / f"v{index:04d}.ork"
+        )
+        if self.show_openrocket and digest != self._torpedo_shown:
+            open_openrocket(self.torpedo_path, name)
+            self._torpedo_shown = digest
+
+    def export_baseline(self):
+        base = self.state["iterations"][0]
+        if base.get("handoff", {}).get("artifacts"):
+            return
+        try:
+            base["handoff"] = {"status": "baseline", "artifacts": export_baseline(self.out, base)}
+        except Exception:
+            logging.getLogger(__name__).exception("Baseline export failed; viewer uses the schematic")
+            return
+        self.save()
 
     @staticmethod
     def entry(ship: ShipSpec, index: int, status: str, result: RefitResult | None = None):
@@ -106,6 +173,9 @@ class Workbench:
             "mission": burn.model_dump(mode="json"),
             "delta_v_margin": ship.delta_v_km_s - burn.delta_v_km_s,
             "rationale": ship.rationale or "Baseline design. Ready for a refit.",
+            "torpedo": torpedo_summary(
+                ship, bool(result) and any(c.path.startswith("torpedo") for c in result.diff.changes)
+            ),
             "changed_parts": result.diff.changed_parts if result else [],
             "geometry_changed_parts": ship_geometry_parts(result.before, ship) if result else [],
             "changes": [c.human() for c in result.diff.changes] if result else [],
@@ -119,7 +189,9 @@ class Workbench:
     def snapshot(self):
         return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS,
                 "model": model_name() if self.live else None,
-                "kord_base": KordClient().base_url}
+                "kord_base": KordClient().base_url,
+                "openrocket": self.show_openrocket,
+                "torpedo_file": str(self.torpedo_path) if self.torpedo_path else None}
 
     def revision(self, payload: dict):
         index = payload.get("index")
@@ -197,7 +269,9 @@ class Workbench:
             entry["model"] = model_name()
         self.state["iterations"].append(entry)
         self.save()
-        self.refresh_blender()
+        self.publish_current()
+        if self.auto_export:
+            self.export({"index": index})
         return self.snapshot()
 
     def decide(self, payload: dict):
@@ -212,7 +286,7 @@ class Workbench:
             self.state["accepted"] = current["index"]
         self.save()
         if verdict == "rejected":
-            self.refresh_blender()
+            self.publish_current()
         return self.snapshot()
 
 

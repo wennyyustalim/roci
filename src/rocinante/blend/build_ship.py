@@ -143,7 +143,7 @@ def _cylinder(builder, start, end, radius, material="panel", cap_material=None, 
     builder.face(tuple(last), cap)
 
 
-def _tube(builder, start, end, outer_radius, inner_radius, material="panel", bore="dark", facets=12):
+def _tube(builder, start, end, outer_radius, inner_radius, material="panel", bore="dark", facets=12, recessed=True):
     """An annular launch tube with a dark, recessed aperture at its nose."""
     axis, u, v = _basis_for(_sub(end, start))
     rings = [[], [], [], []]
@@ -159,7 +159,8 @@ def _tube(builder, start, end, outer_radius, inner_radius, material="panel", bor
         builder.face((rings[2][next_i], rings[2][i], rings[3][i], rings[3][next_i]), bore)
         builder.face((rings[1][i], rings[1][next_i], rings[3][next_i], rings[3][i]), material)
         builder.face((rings[2][next_i], rings[2][i], rings[0][i], rings[0][next_i]), material)
-    _disc(builder, _sub(end, _scale(axis, 0.06)), axis, inner_radius * 0.94, bore, facets)
+    if recessed:
+        _disc(builder, _lerp(start, end, 0.12), axis, inner_radius * 0.99, bore, facets)
 
 
 def hull_profile(hull, steps=None):
@@ -238,14 +239,19 @@ def _plate(builder, corners, thickness, material="hull", bevel=0.08):
     """Chamfered armor tile with a dark seam and a light-catching bevel."""
     normal = _unit(_cross(_sub(corners[1], corners[0]), _sub(corners[3], corners[0])))
     center = _scale(tuple(map(sum, zip(*corners))), 0.25)
+    # Clip the corners instead of drawing square, toy-like raised rectangles.
+    outline = []
+    for i, corner in enumerate(corners):
+        outline.extend((_lerp(corner, corners[(i-1)%4], 0.055),
+                        _lerp(corner, corners[(i+1)%4], 0.055)))
     lower, upper = [], []
-    for corner in corners:
+    for corner in outline:
         lower.append(builder.vertex(corner))
         upper.append(builder.vertex(_add(_lerp(corner, center, bevel), _scale(normal, thickness))))
     builder.face(tuple(upper), material)
     builder.face(tuple(reversed(lower)), "dark")
-    for i in range(4):
-        j = (i + 1) % 4
+    for i in range(8):
+        j = (i + 1) % 8
         builder.face((lower[i], lower[j], upper[j], upper[i]), "edge")
 
 
@@ -262,6 +268,35 @@ def _skin_panel(builder, hull, face, z0, z1, u0=0.04, u1=0.96, material="hull", 
     corners = [_skin_point(hull, face, z, u, lift) for z, u in
                ((z0, u0), (z0, u1), (z1, u1), (z1, u0))]
     _plate(builder, corners, depth, material)
+
+
+def _hull_lettering(builder, hull):
+    """Original ship-name and service stencils as vector geometry, no decals."""
+    length = hull["length_m"]
+    detail = min(length/46, hull["beam_m"]/23)
+    for face in (1,5):
+        for text, station, across, size in (("ROCINANTE",0.685,0.64,0.48), ("0251",0.075,0.63,0.67)):
+            origin = _skin_point(hull,face,length*station,across,0.24*detail)
+            along = _unit(_sub(_skin_point(hull,face,length*station+0.05,across),
+                               _skin_point(hull,face,length*station-0.05,across)))
+            up = (1,0,0) if face == 1 else (-1,0,0)
+            normal = _unit(_cross(along,up))
+            curve = bpy.data.curves.new("stencil",type="FONT")
+            curve.body, curve.size, curve.extrude = text, size*detail, 0.001*detail
+            curve.resolution_u = 4
+            obj = bpy.data.objects.new("stencil",curve)
+            bpy.context.collection.objects.link(obj)
+            bpy.context.view_layer.update()
+            mesh = obj.to_mesh()
+            start = len(builder.verts)
+            for vertex in mesh.vertices:
+                builder.vertex(_add(origin,_add(_scale(along,vertex.co.x),
+                                               _add(_scale(up,vertex.co.y),_scale(normal,vertex.co.z)))))
+            for polygon in mesh.polygons:
+                builder.face(tuple(start+index for index in polygon.vertices),"white")
+            obj.to_mesh_clear()
+            bpy.data.objects.remove(obj,do_unlink=True)
+            bpy.data.curves.remove(curve)
 
 
 def build_hull(spec):
@@ -294,6 +329,43 @@ def build_hull(spec):
                         p = _skin_point(hull, face, low + (high-low)*0.15, u, 0.16 * detail)
                         normal = _unit((p[0], p[1] / 0.74**2, 0))
                         _cylinder(builder, p, _add(p, _scale(normal, 0.035*detail)), 0.055*detail, "edge", facets=6)
+
+    # Shoulder radiators sit in dark service wells. Dense louvers, retaining
+    # bars and latch blocks establish human scale on the broad armor planes.
+    for face in (0, 3, 4, 7):
+        _skin_panel(builder,hull,face,length*0.388,length*0.522,0.23,0.80,"dark",0.18*detail,0.04*detail)
+        for row in range(16):
+            low=length*(0.395+row*0.0074)
+            _skin_panel(builder,hull,face,low,low+length*0.0025,0.26,0.77,"panel",0.24*detail,0.04*detail)
+        for u in (0.28,0.49,0.72):
+            a=_skin_point(hull,face,length*0.39,u,0.34*detail)
+            b=_skin_point(hull,face,length*0.52,u,0.34*detail)
+            _cylinder(builder,a,b,0.045*detail,"edge",facets=6)
+        for row in range(4):
+            low=length*(0.403+row*0.031)
+            for u in (0.20,0.79):
+                _skin_panel(builder,hull,face,low,low+length*0.008,u,u+0.045,"edge",0.29*detail,0.07*detail)
+
+    # Narrow dorsal armor spine and offset inspection strips.
+    for face in (1,5):
+        for z0,z1 in ((0.325,0.375),(0.385,0.525),(0.535,0.595),(0.645,0.785),(0.795,0.895)):
+            _skin_panel(builder,hull,face,length*z0,length*z1,0.055,0.19,"panel",0.18*detail,0.10*detail)
+            _skin_panel(builder,hull,face,length*z0,length*z1,0.81,0.945,"panel",0.18*detail,0.10*detail)
+        for row in range(6):
+            low=length*(0.815+row*0.010)
+            _skin_panel(builder,hull,face,low,low+length*0.004,0.35,0.65,"dark",0.15*detail,0.018*detail)
+
+    # Deterministic fine paint wear and stencils, built into the mesh so the
+    # same surface detail is visible in Blender and in the exported model.
+    for face in range(FACETS):
+        for index in range(32):
+            low=length*(0.035+((index*0.61803398875+face*0.137)%1)*0.87)
+            u=0.08+((index*0.38196601125+face*0.21)%1)*0.82
+            _skin_panel(builder,hull,face,low,low+length*0.0006,u,min(u+0.023,0.96),
+                        "edge",0.15*detail,0.002*detail)
+        for row in range(3):
+            low=length*(0.32+row*0.013)
+            _skin_panel(builder,hull,face,low,low+length*0.004,0.34,0.44,"white",0.15*detail,0.002*detail)
 
     # Aft equipment racks: exposed conduits and heat exchangers in the waist.
     for face in range(FACETS):
@@ -346,32 +418,61 @@ def build_hull(spec):
                 nozzle = _add(p, _scale(v, offset*detail))
                 _tube(builder, nozzle, _add(nozzle, _scale(normal, 0.32*detail)),
                       0.22*detail, 0.15*detail, "edge", facets=12)
+    _hull_lettering(builder,hull)
     return [tag(mesh_from("hull_body", builder), "hull_body")]
 
 
 def build_drive(spec):
     hull, drive = spec["hull"], spec["drive"]
-    _, hull_ry = hull_radius_at(hull, 0)
-    neck_radius = min(drive["cone_radius_m"] * 0.44, hull_ry * 0.82)
-    cone_builder = MeshBuilder()
-    add_faceted_shell(cone_builder, sorted([
-        (0.02, neck_radius * 1.10, neck_radius * 0.82),
-        (-drive["cone_length_m"] * 0.30, drive["cone_radius_m"] * 0.72, drive["cone_radius_m"] * 0.54),
-        (-drive["cone_length_m"] * 0.86, drive["cone_radius_m"] * 0.98, drive["cone_radius_m"] * 0.74),
-    ], key=lambda section: section[0]), "panel")
-    for side in (-1, 1):
-        _box(cone_builder, (side * neck_radius * 0.90, 0, -drive["cone_length_m"] * 0.30),
-             (0.20, neck_radius * 1.05, drive["cone_length_m"] * 0.42), "hull")
-    cone = tag(mesh_from("drive_cone", cone_builder), "drive_cone")
-    bell_builder = MeshBuilder()
-    bell_z, bell_length = -drive["cone_length_m"] * 0.88, max(1.2, drive["cone_length_m"] * 0.18)
-    outer = drive["cone_radius_m"] * 1.08
-    _tube(bell_builder, (0, 0, bell_z), (0, 0, bell_z - bell_length), outer, outer * 0.70, "drive", "dark")
-    _disc(bell_builder, (0, 0, bell_z - bell_length - 0.015), (0, 0, -1), outer * 0.65, "drive_hot")
-    _tube(bell_builder, (0, 0, bell_z + 0.18), (0, 0, bell_z - bell_length * 0.18), outer * 1.03,
-          outer * 0.91, "panel", "dark")
-    bell = tag(mesh_from("drive_bell", bell_builder), "drive_bell")
-    return [cone, bell]
+    length, radius = drive["cone_length_m"], drive["cone_radius_m"]
+    detail = min(length/11, radius/6.5)
+    cone, bell = MeshBuilder(), MeshBuilder()
+    # Visible thrust chamber behind an open triangulated load-bearing cage.
+    _cylinder(cone, (0,0,0), (0,0,-length*0.57), radius*0.33, "dark", facets=32)
+    for fraction in (0.04, 0.19, 0.36, 0.51):
+        _tube(cone, (0,0,-length*fraction), (0,0,-length*fraction-0.16*detail),
+              radius*0.38, radius*0.31, "edge", facets=32)
+    rx, ry = hull_radius_at(hull, 0)
+    for i in range(8):
+        angle = math.tau*i/8 + math.pi/8
+        next_angle = angle+math.pi/4
+        a = (rx*0.88*math.cos(angle), ry*0.88*math.sin(angle), 0)
+        b = (radius*0.55*math.cos(angle), radius*0.55*math.sin(angle), -length*0.53)
+        c = (radius*0.55*math.cos(next_angle), radius*0.55*math.sin(next_angle), -length*0.53)
+        _cylinder(cone, a, b, 0.16*detail, "edge", facets=8)
+        _cylinder(cone, a, c, 0.095*detail, "panel", facets=8)
+        _cylinder(cone, b, c, 0.13*detail, "edge", facets=8)
+        pipe_a = (radius*0.40*math.cos(angle), radius*0.40*math.sin(angle), -length*0.02)
+        pipe_b = (radius*0.40*math.cos(angle), radius*0.40*math.sin(angle), -length*0.51)
+        _cylinder(cone, pipe_a, pipe_b, 0.07*detail, "drive", facets=8)
+
+    # Revolved, genuinely hollow nozzle: throat, expanding bell and rolled lip.
+    profile = [(-0.48,0.38), (-0.56,0.49), (-0.66,0.68), (-0.80,0.88), (-0.96,1.0), (-1.0,1.0)]
+    rings, inner = [], []
+    for z, r in profile:
+        rings.append(_ring(bell,z*length,r*radius,r*radius,48))
+        inner.append(_ring(bell,z*length,(r-0.045)*radius,(r-0.045)*radius,48))
+    for station in range(len(rings)-1):
+        for i in range(48):
+            j=(i+1)%48
+            bell.face((rings[station][j],rings[station][i],rings[station+1][i],rings[station+1][j]), "drive")
+            bell.face((inner[station][i],inner[station][j],inner[station+1][j],inner[station+1][i]), "dark")
+    for i in range(48):
+        j=(i+1)%48
+        bell.face((rings[-1][j],rings[-1][i],inner[-1][i],inner[-1][j]), "edge")
+    _disc(bell, (0,0,-length*0.51), (0,0,-1), radius*0.34, "drive_hot", 48)
+    for z,r in ((-0.58,0.54), (-0.79,0.89), (-0.96,1.015)):
+        _tube(bell,(0,0,z*length),(0,0,z*length-0.13*detail),r*radius,(r-0.03)*radius,"edge", facets=48, recessed=False)
+    # Individual cooling ribs and evenly spaced clamps break the smooth bell.
+    for i in range(24):
+        angle=math.tau*i/24
+        for (z0,r0),(z1,r1) in pairwise(profile[1:]):
+            a=((r0*radius+0.045*detail)*math.cos(angle),(r0*radius+0.045*detail)*math.sin(angle),z0*length)
+            b=((r1*radius+0.045*detail)*math.cos(angle),(r1*radius+0.045*detail)*math.sin(angle),z1*length)
+            _cylinder(bell,a,b,0.055*detail,"panel",facets=6)
+        _box(bell,(radius*math.cos(angle),radius*math.sin(angle),-length*0.98),
+             (0.28*detail,0.28*detail,0.46*detail),"hull")
+    return [tag(mesh_from("drive_cone",cone),"drive_cone"), tag(mesh_from("drive_bell",bell),"drive_bell")]
 
 
 def build_pdcs(spec):
@@ -379,9 +480,10 @@ def build_pdcs(spec):
     hull, weapons = spec["hull"], spec["weapons"]
     out, count = [], weapons["pdc_mounts"]
     for index in range(count):
-        band = index % 2
-        z = hull["length_m"] * (0.30 if band == 0 else 0.57)
-        angle = 2 * math.pi * (index // 2 + 0.25 + 0.5 * band) / max(1, math.ceil(count / 2))
+        # Three opposed pairs: aft, shoulder and forward defensive arcs.
+        band = (index // 2) % 3
+        z = hull["length_m"] * (0.205, 0.465, 0.76)[band]
+        angle = math.pi*(index % 2) + (math.pi/2 if band == 0 else 0) + (index//6)*math.pi/4
         radial, tangent = (math.cos(angle), math.sin(angle), 0), (-math.sin(angle), math.cos(angle), 0)
         rx, ry = hull_radius_at(hull, z)
         surface = faceted_surface_distance(rx, ry, radial)
@@ -392,30 +494,59 @@ def build_pdcs(spec):
         _box(builder, mount, (1.70, 0.42, 1.15), "panel", basis)
         _cylinder(builder, pedestal_base, pedestal_top, 0.46, "hull", "panel", 8)
         turret = (radial[0] * (surface + 1.03), radial[1] * (surface + 1.03), z)
-        _box(builder, turret, (1.20, 0.58, 0.68), "dark", basis)
-        aim = _unit(_add(radial, (0, 0, 0.24)))
-        for offset in (-0.26, 0.26):
-            start = _add(turret, _add(_scale(tangent, offset), _scale(aim, 0.22)))
-            _cylinder(builder, start, _add(start, _scale(aim, 1.45)), 0.13, "dark", "panel", 8)
+        _box(builder, turret, (1.05, 0.72, 1.05), "dark", basis)
+        for side in (-1, 1):
+            center = _add(turret, _scale(tangent, side*0.56))
+            _box(builder, center, (0.18, 0.80, 1.18), "panel", basis)
+            _cylinder(builder, center, _add(center,_scale(tangent,side*0.14)),0.29,"edge",facets=16)
+        aim = _unit(_add(radial, (0, 0, 0.52)))
+        _, u, v = _basis_for(aim)
+        origin = _add(turret, _scale(aim,0.38))
+        _cylinder(builder, turret, origin,0.38,"panel",facets=16)
+        for barrel in range(6):
+            offset = _scale(_add(_scale(u,math.cos(math.tau*barrel/6)),_scale(v,math.sin(math.tau*barrel/6))),0.23)
+            start = _add(origin,offset)
+            _tube(builder,start,_add(start,_scale(aim,1.55)),0.095,0.06,"edge",facets=10)
+        for distance in (0.42,1.20):
+            start=_add(origin,_scale(aim,distance))
+            _tube(builder,start,_add(start,_scale(aim,0.15)),0.37,0.31,"hull",facets=16,recessed=False)
+        sensor = _add(turret,(0,0,0.64))
+        _box(builder,sensor,(0.37,0.38,0.22),"hull",basis)
+        _disc(builder,_add(sensor,_scale(radial,0.20)),radial,0.095,"light")
         out.append(tag(mesh_from(f"pdc_{index + 1:02d}", builder), f"pdc_{index + 1:02d}"))
     return out
 
 
 def build_tubes(spec):
-    """Forward tubes on +Y, clear from the viewer's +Y quarter framing."""
+    """Armored launch cassettes conform to the sloping forward hull."""
     hull, weapons = spec["hull"], spec["weapons"]
     count, out = weapons["torpedo_tubes"], []
-    columns = min(3, max(1, count))
+    columns = min(4, max(1, math.ceil(count / 2)))
+    rows = max(1, math.ceil(count/(2*columns)))
     for index in range(count):
-        row, column = divmod(index, columns)
-        z = hull["length_m"] * (0.74 - row * 0.055)
-        rx, ry = hull_radius_at(hull, z)
-        x = (column - (columns - 1) / 2) * min(2.35, rx * 0.34)
-        y_skin = faceted_y_at_x(rx, ry, x)
-        y = y_skin + 0.16
+        side = 1 if index % 2 == 0 else -1
+        row, column = divmod(index//2, columns)
+        z = hull["length_m"] * (0.70 - row * 0.10 / rows)
+        rx, _ry = hull_radius_at(hull, z)
+        spacing = min(1.65, rx * 0.95 / columns)
+        x = (column - (columns - 1) / 2) * spacing
+        half_length = hull["length_m"]*0.027/rows
+        r0, s0 = hull_radius_at(hull,z-half_length)
+        r1, s1 = hull_radius_at(hull,z+half_length)
+        start = (x,side*(faceted_y_at_x(r0,s0,x)+0.25),z-half_length)
+        end = (x,side*(faceted_y_at_x(r1,s1,x)+0.25),z+half_length)
+        axis = _unit(_sub(end,start))
+        normal = _unit((0,side,-side*axis[1]/axis[2]))
+        center = _lerp(start,end,0.5)
+        basis = ((side,0,0),normal,axis)
         builder = MeshBuilder()
-        _tube(builder, (x, y, z - 1.62), (x, y, z + 1.62), 0.68, 0.42, "panel", "dark")
-        _box(builder, (x, y - 0.10, z), (1.58, 0.26, 3.42), "hull")
+        _box(builder,center,(spacing*0.94,0.55,half_length*2.08),"hull",basis)
+        _box(builder,_add(center,_scale(normal,0.29)),(spacing*0.72,0.06,half_length*1.70),"dark",basis)
+        for offset in (-0.23,0.23):
+            _box(builder,_add(_add(center,_scale(normal,0.34)),(offset*spacing,0,0)),
+                 (spacing*0.42,0.07,half_length*1.55),"panel",basis)
+        _tube(builder,_sub(end,_scale(axis,0.35)),_add(end,_scale(axis,0.08)),
+              spacing*0.32,spacing*0.24,"edge","dark",16)
         out.append(tag(mesh_from(f"tube_{index + 1:02d}", builder), f"tube_{index + 1:02d}"))
     return out
 
@@ -447,11 +578,15 @@ def apply_materials(objects):
             node.inputs["Emission Color"].default_value, node.inputs["Emission Strength"].default_value = emission
         return value
     materials = (
-        make("hull_graphite", (0.16, 0.18, 0.21, 1), 0.76, 0.42),
-        make("armor_panel", (0.32, 0.35, 0.39, 1), 0.68, 0.46),
+        make("hull_graphite", (0.075, 0.090, 0.108, 1), 0.52, 0.48),
+        make("armor_panel", (0.25, 0.28, 0.30, 1), 0.42, 0.50),
         make("recess_black", (0.025, 0.032, 0.045, 1), 0.42, 0.32),
-        make("drive_ceramic", (0.28, 0.17, 0.09, 1), 0.62, 0.36),
+        make("drive_ceramic", (0.16, 0.13, 0.11, 1), 0.72, 0.38),
         make("drive_core", (0.10, 0.18, 0.34, 1), 0.22, 0.24, ((0.20, 0.48, 1.0, 1), 1.5)),
+        make("exposed_alloy", (0.34, 0.38, 0.40, 1), 0.78, 0.34),
+        make("oxide_identification", (0.34, 0.068, 0.027, 1), 0.25, 0.58),
+        make("ceramic_markings", (0.62, 0.65, 0.63, 1), 0.15, 0.65),
+        make("navigation_lights", (0.48, 0.65, 0.8, 1), 0.15, 0.25, ((0.55, 0.76, 1.0, 1), 2.0)),
     )
     for obj in objects:
         for material in materials:
@@ -478,6 +613,23 @@ def frame_camera(objects):
     return span, (cx, cy, cz)
 
 
+def frame_viewports(span, center):
+    """Make the generated model readable when opened in the live Blender UI."""
+    from mathutils import Vector
+
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            space = area.spaces.active
+            space.clip_end = max(2000, span*10)
+            space.shading.type = "MATERIAL"
+            space.overlay.show_overlays = False
+            space.region_3d.view_location = Vector(center)
+            space.region_3d.view_distance = span*1.65
+            space.region_3d.view_rotation = Vector((1.45,2.0,0.76)).to_track_quat("Z","Y")
+
+
 def add_lights(span, center):
     from mathutils import Vector
 
@@ -485,13 +637,13 @@ def add_lights(span, center):
         obj.rotation_euler = (Vector(center) - obj.location).to_track_quat("-Z", "Y").to_euler()
 
     key = bpy.data.lights.new("key", type="AREA")
-    key.energy, key.shape, key.size = span * span * 48, "DISK", span * 0.8
+    key.energy, key.shape, key.size = span * span * 28, "DISK", span * 0.8
     key_obj = bpy.data.objects.new("key", key)
     bpy.context.collection.objects.link(key_obj)
     key_obj.location = _add(center, (span * 0.85, span * 1.20, span * 0.80))
     point_at(key_obj)
     rim = bpy.data.lights.new("rim", type="AREA")
-    rim.energy, rim.shape, rim.size = span * span * 32, "RECTANGLE", span * 0.6
+    rim.energy, rim.shape, rim.size = span * span * 24, "RECTANGLE", span * 0.6
     rim_obj = bpy.data.objects.new("rim", rim)
     bpy.context.collection.objects.link(rim_obj)
     rim_obj.location = _add(center, (-span * 1.0, -span * 0.8, span * 0.35))
@@ -509,11 +661,24 @@ def main():
     bpy.context.view_layer.update()
     span, center = frame_camera(objects)
     add_lights(span, center)
+    frame_viewports(span, center)
+    if payload.get("blend"):
+        bpy.ops.wm.save_as_mainfile(filepath=payload["blend"])
     if payload.get("out"):
         bpy.ops.export_scene.gltf(filepath=payload["out"], export_format="GLB", export_extras=True, export_apply=True)
         print(f"wrote {payload['out']} ({len(objects)} parts)")
     if render := payload.get("render"):
+        from mathutils import Quaternion, Vector
+
         scene = bpy.context.scene
+        # A diagonal three-quarter presentation fills a landscape frame and
+        # shows both the forward armor and the recessed engine throat.
+        cam = scene.camera
+        cam.constraints.clear()
+        cam.location = _add(center,(span*1.45,span*2.0,-span*0.50))
+        rotation = (Vector(center)-cam.location).to_track_quat("-Z","Y")
+        cam.rotation_euler = (rotation @ Quaternion((0,0,1),math.radians(-58))).to_euler()
+        cam.data.lens = 64 if render["resolution"][0] > render["resolution"][1] else 40
         scene.render.engine = "BLENDER_EEVEE"
         scene.render.resolution_x, scene.render.resolution_y = render["resolution"]
         scene.render.resolution_percentage = 100

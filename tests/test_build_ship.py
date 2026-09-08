@@ -42,16 +42,18 @@ def hull_radius_at():
     return namespace
 
 
-def test_hull_profile_has_a_broad_working_hull_and_a_chamfered_prow():
+def test_hull_profile_has_a_narrow_waist_armored_shoulders_and_blunt_prow():
     profile = hull_profile()({"length_m": 100.0, "beam_m": 12.0, "taper": 0.7})
 
-    assert len(profile) == 8
-    assert profile[2] == pytest.approx((28.0, 6.0))
-    assert profile[-1] == pytest.approx((100.0, 0.42))
+    assert profile[4] == pytest.approx((29.0, 3.3))
+    assert profile[6] == pytest.approx((38.0, 6.0))
+    assert profile[7] == pytest.approx((53.0, 6.0))
+    assert profile[-1] == pytest.approx((94.0, 6.0*0.7*0.63))
     assert all(after[0] > before[0] for before, after in pairwise(profile))
-    # The final three hard changes in radius are intentional shoulder, chamfer,
-    # and cockpit-face planes rather than a rounded rocket ogive.
-    assert all(after[1] < before[1] for before, after in pairwise(profile[3:]))
+    assert max(radius for _, radius in profile) == 6.0
+    # The central armor is wider than both the machinery waist and bow.
+    assert profile[4][1] < profile[6][1] > profile[-1][1]
+    assert all(after[1] < before[1] for before, after in pairwise(profile[9:]))
 
 
 def test_local_hull_radius_keeps_decks_and_flush_mounts_inside_the_hull():
@@ -61,7 +63,7 @@ def test_local_hull_radius_keeps_decks_and_flush_mounts_inside_the_hull():
     mid_x, mid_y = radius_at(hull, 46.0 * 0.46)
     nose_x, nose_y = radius_at(hull, 46.0 * 0.90)
 
-    assert mid_x == pytest.approx(11.04)
+    assert mid_x == pytest.approx(11.5)
     assert mid_y == pytest.approx(mid_x * 0.74)
     assert nose_x < mid_x
     assert nose_y < mid_y

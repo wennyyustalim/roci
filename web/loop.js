@@ -42,6 +42,18 @@ function render() {
     ["torpedo_capacity","Torpedoes","",0],["max_accel_g","Drive limit","g",2],
     ["crew_g_limit","Crew limit","g",1],["sustained_burn_hours","Cruise endurance","h",2],
   ]) metric("metrics",label,it.derived[key],unit,prev?.derived[key],digits);
+  el("torpedo").replaceChildren();
+  const torpedo=it.torpedo, prevTorpedo=prev?.torpedo;
+  if(torpedo) {
+    metric("torpedo","Length",torpedo.length_m*100,"cm",prevTorpedo ? prevTorpedo.length_m*100 : null);
+    metric("torpedo","Diameter",torpedo.diameter_m*1000,"mm",prevTorpedo ? prevTorpedo.diameter_m*1000 : null,0);
+    metric("torpedo","Fins",torpedo.fins,"",prevTorpedo?.fins,0);
+    metric("torpedo","Fin span",torpedo.fin_span_m*1000,"mm",prevTorpedo ? prevTorpedo.fin_span_m*1000 : null,0);
+    const dt=document.createElement("dt"), dd=document.createElement("dd"); dt.textContent="Motor"; dd.textContent=torpedo.motor; el("torpedo").append(dt,dd);
+    el("torpedo-note").textContent=!prev ? (state.openrocket ? "Open in OpenRocket." : "")
+      : torpedo.changed ? `Torpedo changed in this revision${state.openrocket ? " · OpenRocket reopened with it" : ""}.`
+      : `Torpedo unchanged from v${prev.index}.`;
+  }
   el("mission").replaceChildren();
   metric("mission","Flip",it.mission.flip_time_s/3600,"h");
   metric("mission","Arrival",it.mission.total_time_s/3600,"h");
@@ -52,7 +64,7 @@ function render() {
   for(const id of ["approve","reject"]) el(id).disabled=busy || it.status!=="pending";
   const handoff=it.handoff ?? {};
   el("export").disabled=busy || !prev || Boolean(handoff.share_url);
-  el("share").disabled=busy || !["exported","share_failed"].includes(handoff.status) || Boolean(handoff.share_url);
+  el("share").disabled=busy || !prev || !["exported","share_failed"].includes(handoff.status) || Boolean(handoff.share_url);
   el("share").textContent=handoff.status==="share_failed" ? "Retry Kord share" : "Share with Kord";
   el("handoff-status").textContent=handoff.error || ({exported:"GLB pair exported and ready to share.",shared:"Comparison shared. Link saved with this revision."}[handoff.status]) || (prev ? "Export this revision and its accepted parent through Blender." : "Select a proposal to export.");
   el("share-destination").textContent=`Destination: ${state.kord_base}`;
@@ -63,6 +75,8 @@ function render() {
   if(handoff.artifacts) {
     const directory=`/exports/v${String(it.index).padStart(4,"0")}/`;
     for(const [file,label] of [["before.glb","Before GLB ↓"],["after.glb","After GLB ↓"],["comparison.json","Comparison report ↓"]]) {
+      if(!handoff.artifacts[file.split(".")[0]] && file!=="comparison.json") continue;
+      if(file==="comparison.json" && !prev) continue;
       const link=document.createElement("a");link.href=directory+file;link.download=file;link.textContent=label;el("artifacts").append(link);
     }
   }

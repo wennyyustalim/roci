@@ -30,6 +30,7 @@ from build_ship import (
     build_pdcs,
     build_tubes,
     frame_camera,
+    frame_viewports,
 )
 
 SPEC_PATH = Path(sys.argv[sys.argv.index("--") + 1])
@@ -65,7 +66,10 @@ def refresh():
         + build_decks(spec)
     )
     apply_materials(objects)
-    add_lights(frame_camera(objects))
+    bpy.context.view_layer.update()
+    span, center = frame_camera(objects)
+    add_lights(span, center)
+    frame_viewports(span, center)
     bpy.context.scene["rocinante_spec_path"] = str(SPEC_PATH)
     bpy.context.scene["rocinante_parts"] = len(objects)
     last_digest = digest

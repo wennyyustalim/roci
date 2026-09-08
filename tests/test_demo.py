@@ -1,37 +1,31 @@
-import json
 import zipfile
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from rocinante.demo import latest_torpedo, write_latest_torpedo
+from rocinante import demo
 from rocinante.ork import write_ork
-from rocinante.samples import BASELINE, UNSTABLE
+from rocinante.samples import BASELINE
 
 
-def test_latest_torpedo_falls_back_to_the_sample(tmp_path):
-    spec, source = latest_torpedo(tmp_path / "workbench")
-    assert spec == BASELINE
-    assert "baseline" in source
+def test_openrocket_window_title_matches_the_app_convention():
+    assert demo.openrocket_window_title("Rocinante torpedo v3", Path("/x/v0003.ork")) == (
+        "Rocinante torpedo v3 (v0003.ork)"
+    )
 
 
-def test_latest_torpedo_is_the_newest_manifest_iteration(tmp_path):
-    (tmp_path / "manifest.json").write_text(json.dumps({"iterations": [
-        {"index": 1, "spec": BASELINE.model_dump(mode="json")},
-        {"index": 2, "spec": UNSTABLE.model_dump(mode="json")},
-        {"index": 3, "spec": {"name": "broken"}},
-    ]}))
-    spec, source = latest_torpedo(tmp_path / "workbench")
-    assert spec.name == "Marginal"
-    assert source.endswith("v2")
+def test_open_openrocket_reports_absence_instead_of_raising(monkeypatch, tmp_path):
+    monkeypatch.setattr(demo, "_mac_app_available", lambda name: False)
+    monkeypatch.setattr(demo.shutil, "which", lambda name: None)
+    assert demo.open_openrocket(tmp_path / "t.ork", "Torpedo v1") is None
 
 
-def test_write_latest_torpedo_regenerates_the_file(tmp_path):
-    out = tmp_path / "workbench"
-    out.mkdir()
-    stale = out / "torpedo.ork"
-    stale.write_bytes(b"stale")
-    path, _ = write_latest_torpedo(out)
-    assert path == stale
-    assert zipfile.is_zipfile(path)
+def test_open_openrocket_closes_our_previous_window_first(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(demo, "_mac_app_available", lambda name: True)
+    monkeypatch.setattr(demo.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    assert demo.open_openrocket(tmp_path / "v0002.ork", "Roci torpedo v2") == "OpenRocket"
+    assert calls[0][0] == "osascript" and "Roci torpedo v2 (v0002.ork)" in calls[0][2]
+    assert calls[1][:3] == ["open", "-a", "OpenRocket"]
 
 
 def test_ork_uses_openrocket_position_and_motor_mount_elements(tmp_path):

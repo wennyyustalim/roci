@@ -34,6 +34,7 @@ SHIP_PART_OF_PREFIX = {
     "decks": "deck_*",
     "crew": None,
     "stores_t": None,
+    "torpedo": "torpedo",
 }
 
 # ShipSpec inputs consumed by build_ship.py, and the generated part groups each

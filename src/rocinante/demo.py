@@ -1,64 +1,46 @@
-"""Everything `roci demo` opens besides the workbench server.
+"""The desktop apps `roci demo` opens beside the workbench server.
 
 Three windows tell the story: Chrome for the review UI, Blender for the ship,
-OpenRocket for the torpedo. The workbench already drives the Blender window;
-this module finds the newest torpedo, writes it as a fresh `.ork`, and opens
-the desktop apps. Kept free of the HTTP server so it is testable on its own.
+OpenRocket for the torpedo. Blender watches a spec file and rebuilds itself.
+OpenRocket has no such hook, so the workbench writes one `.ork` per revision
+and reopens it; the previous torpedo window is closed as a best effort so the
+newest design is the one on screen. Kept free of the HTTP server so it is
+testable on its own.
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
 import webbrowser
 from pathlib import Path
 
-from rocinante.ork import write_ork
-from rocinante.samples import BASELINE
-from rocinante.spec import RocketSpec
-
 CHROME_APP = "Google Chrome"
 OPENROCKET_APP = "OpenRocket"
-OPENROCKET_APP_PATH = Path("/Applications/OpenRocket.app")
 
-
-def latest_torpedo(out: Path) -> tuple[RocketSpec, str]:
-    """The newest torpedo design, and where it came from.
-
-    `rocinante design` writes a manifest with every iteration's spec. Look in
-    the demo directory first, then its parent (the loop's default `out/`).
-    With no run on disk, the sample baseline torpedo is the latest design.
-    """
-    for directory in (out, out.parent):
-        manifest = directory / "manifest.json"
-        if not manifest.is_file():
-            continue
-        try:
-            iterations = json.loads(manifest.read_text()).get("iterations", [])
-        except (OSError, json.JSONDecodeError):
-            continue
-        for iteration in reversed(iterations):
-            spec = iteration.get("spec")
-            if not spec:
-                continue
-            try:
-                return RocketSpec.model_validate(spec), f"{manifest} v{iteration.get('index', '?')}"
-            except ValueError:
-                continue
-    return BASELINE, "sample baseline (no design run found)"
-
-
-def write_latest_torpedo(out: Path) -> tuple[Path, str]:
-    """Always regenerate: a stale `.ork` on disk may predate the writer's format."""
-    spec, source = latest_torpedo(out)
-    return write_ork(spec, out / "torpedo.ork"), source
+# Title of an OpenRocket window we opened: "<rocket name> (<file name>)".
+_CLOSE_STALE_WINDOWS = '''
+tell application "System Events"
+    if not (exists process "{app}") then return
+    tell process "{app}"
+        repeat with w in windows
+            set t to name of w
+            if t ends with ".ork)" and t is not "{keep}" then
+                try
+                    click button 1 of w
+                end try
+            end if
+        end repeat
+    end tell
+end tell
+'''
 
 
 def _mac_app_available(name: str) -> bool:
     return sys.platform == "darwin" and (
-        Path(f"/Applications/{name}.app").exists() or Path(f"~/Applications/{name}.app").expanduser().exists()
+        Path(f"/Applications/{name}.app").exists()
+        or Path(f"~/Applications/{name}.app").expanduser().exists()
     )
 
 
@@ -71,13 +53,39 @@ def open_browser(url: str) -> str:
     return "default browser"
 
 
-def open_openrocket(path: Path) -> str | None:
-    """Open a `.ork` in the OpenRocket desktop app. Returns how, or None if absent."""
-    resolved = str(Path(path).resolve())
+def openrocket_available() -> bool:
+    return _mac_app_available(OPENROCKET_APP) or shutil.which("openrocket") is not None
+
+
+def openrocket_window_title(rocket_name: str, path: Path) -> str:
+    return f"{rocket_name} ({Path(path).name})"
+
+
+def open_openrocket(path: Path, rocket_name: str | None = None) -> str | None:
+    """Show a `.ork` in OpenRocket, replacing the torpedo window we opened before.
+
+    Returns how it was opened, or None when OpenRocket is not installed.
+    """
+    resolved = Path(path).resolve()
     if _mac_app_available(OPENROCKET_APP):
-        subprocess.run(["open", "-a", OPENROCKET_APP, resolved], check=False)
+        if rocket_name:
+            close_stale_openrocket_windows(openrocket_window_title(rocket_name, resolved))
+        subprocess.run(["open", "-a", OPENROCKET_APP, str(resolved)], check=False)
         return OPENROCKET_APP
     if shutil.which("openrocket"):
-        subprocess.Popen(["openrocket", resolved], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            ["openrocket", str(resolved)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         return "openrocket"
     return None
+
+
+def close_stale_openrocket_windows(keep_title: str) -> None:
+    """Close our older torpedo windows. Needs Accessibility access; silently skipped without."""
+    if sys.platform != "darwin":
+        return
+    script = _CLOSE_STALE_WINDOWS.format(app=OPENROCKET_APP, keep=keep_title)
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass

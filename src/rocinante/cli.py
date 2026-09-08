@@ -272,7 +272,7 @@ def demo(
     OpenRocket gets the newest torpedo written fresh from its spec.
     """
     from rocinante.agent.refit import model_name
-    from rocinante.demo import open_browser, open_openrocket, write_latest_torpedo
+    from rocinante.demo import open_browser, openrocket_available
     from rocinante.workbench import Workbench, make_server
 
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
@@ -285,8 +285,11 @@ def demo(
         )
     os.environ["KORD_API_BASE"] = kord
 
+    openrocket = openrocket and openrocket_available()
+    bench = Workbench(out, live=live, show_blender=blender, show_openrocket=openrocket,
+                      auto_export=True)
     try:
-        server = make_server(Workbench(out, live=live, show_blender=blender), port)
+        server = make_server(bench, port)
     except OSError as exc:
         console.print(f"[red]Port {port} is already in use ({exc.strerror}).[/]")
         console.print("Stop the other workbench, or run again with --port.")
@@ -300,11 +303,8 @@ def demo(
         table.add_row(open_browser(url), "review UI", url)
     if blender:
         table.add_row("Blender", "ship under review", f"watching {out / 'blender-current.json'}")
-    if openrocket:
-        ork_path, source = write_latest_torpedo(out)
-        opened = open_openrocket(ork_path)
-        table.add_row(opened or "OpenRocket", "latest torpedo" if opened else "NOT INSTALLED",
-                      f"{ork_path} from {source}")
+    table.add_row("OpenRocket", "torpedo under review" if openrocket else "NOT INSTALLED",
+                  f"{bench.torpedo_path}; reopens when a refit changes the torpedo")
     table.add_row("Kord", "shared comparisons", kord)
     console.print(table)
     console.print("[dim]Ctrl-C stops the server; the app windows stay open.[/]")

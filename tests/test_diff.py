@@ -101,3 +101,15 @@ def test_deck_metadata_does_not_change_geometry():
     after.decks[0].name = "Renamed deck"
     after.decks[0].detailed = not after.decks[0].detailed
     assert ship_geometry_parts(ROCINANTE, after) == []
+
+
+def test_torpedo_edits_name_their_own_part():
+    from rocinante.diff import diff_ships, ship_geometry_parts
+    from rocinante.samples import ROCINANTE
+
+    after = ROCINANTE.model_copy(deep=True)
+    after.torpedo.fins.count = 4
+    d = diff_ships(ROCINANTE, after)
+    assert [c.path for c in d.changes] == ["torpedo.fins.count"]
+    assert d.changed_parts == ["torpedo"]
+    assert ship_geometry_parts(ROCINANTE, after) == []

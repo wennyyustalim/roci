@@ -75,6 +75,11 @@ How the levers work:
 - The crew are a design bound, not a display. A ship that can pull more g than
   its weakest crew member survives is only usable to that limit.
 - A longer, wider hull has more skin, and skin is mass before armour is added.
+- `torpedo` is the torpedo itself: nose, body tubes, fins, motor, recovery.
+  It is flown in OpenRocket exactly as returned. Change it only when the ask
+  is about the torpedoes' own shape or flight (fins, length, motor); adding
+  tubes or magazine volume does not touch it. Fin tip chord never exceeds
+  root chord.
 """
 
 REFIT = """Ship:

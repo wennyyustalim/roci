@@ -1,17 +1,12 @@
 """Known-good designs. Fixtures, and the agent's starting point when you want
 a deterministic demo rather than a cold start."""
 
-from rocinante.spec import BodyTube, FinSet, Motor, NoseCone, RocketSpec
+from rocinante.spec import FinSet, baseline_torpedo
 
-BASELINE = RocketSpec(
-    name="Baseline",
-    nose=NoseCone(shape="ogive", length_m=0.10, base_radius_m=0.0125),
-    body=[BodyTube(name="Payload", length_m=0.20, outer_radius_m=0.0125),
-          BodyTube(name="Booster", length_m=0.25, outer_radius_m=0.0125)],
-    fins=FinSet(count=3, root_chord_m=0.06, tip_chord_m=0.03, height_m=0.045, sweep_m=0.03),
-    motor=Motor(designation="E12", diameter_mm=24, length_mm=70),
-    rationale="Hand-built starting point: a stable 3FNC on a 24 mm E motor.",
-)
+BASELINE = baseline_torpedo().model_copy(update={
+    "name": "Baseline",
+    "rationale": "Hand-built starting point: a stable 3FNC on a 24 mm E motor.",
+})
 
 # Deliberately marginal. Good for showing the agent fix something.
 UNSTABLE = BASELINE.model_copy(

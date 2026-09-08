@@ -115,6 +115,18 @@ class RocketSpec(BaseModel):
         return self.max_radius_m * 2
 
 
+def baseline_torpedo() -> RocketSpec:
+    """The torpedo the Roci carries until a refit changes it. A stable 3FNC on an E motor."""
+    return RocketSpec(
+        name="Torpedo",
+        nose=NoseCone(shape=NoseShape.OGIVE, length_m=0.10, base_radius_m=0.0125),
+        body=[BodyTube(name="Payload", length_m=0.20, outer_radius_m=0.0125),
+              BodyTube(name="Booster", length_m=0.25, outer_radius_m=0.0125)],
+        fins=FinSet(count=3, root_chord_m=0.06, tip_chord_m=0.03, height_m=0.045, sweep_m=0.03),
+        motor=Motor(designation="E12", diameter_mm=24, length_mm=70),
+    )
+
+
 def json_schema() -> dict:
     """The schema handed to the model as a structured-output / tool contract."""
     return RocketSpec.model_json_schema()

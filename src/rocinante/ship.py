@@ -18,6 +18,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
+from rocinante.spec import RocketSpec, baseline_torpedo
+
 G0 = 9.80665  # m/s^2, standard gravity. Accelerations are quoted in these.
 
 
@@ -130,6 +132,9 @@ class ShipSpec(BaseModel):
     crew: list[CrewMember] = Field(default_factory=list)
     # Consumables and everything not modelled: stores, water, spares.
     stores_t: float = Field(default=140.0, ge=0)
+    # The torpedo this ship carries, as the model rocket OpenRocket flies.
+    # Its shape is versioned with the ship; a refit can change it.
+    torpedo: RocketSpec = Field(default_factory=baseline_torpedo)
 
     # Why this revision differs from the last one. Not physics -- this is what
     # a human reads in the review session before approving it.

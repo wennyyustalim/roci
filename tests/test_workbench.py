@@ -331,3 +331,43 @@ def test_share_url_rejects_non_web_links():
     for value in ("javascript:alert(1)", "", "file:///tmp/test"):
         with pytest.raises(ValueError):
             share_url("https://work.withkord.com", value)
+
+
+def test_torpedo_rides_with_the_ship_and_reaches_openrocket(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr("rocinante.workbench.open_openrocket", lambda path, name: opened.append((path, name)))
+    bench = Workbench(tmp_path, show_openrocket=True)
+    assert opened == [(tmp_path / "torpedo" / "v0000.ork", "Rocinante torpedo v0")]
+    assert bench.state["iterations"][0]["torpedo"]["fins"] == ROCINANTE.torpedo.fins.count
+
+    armor = bench.propose({"preset": "armor"})["iterations"][-1]
+    assert armor["torpedo"]["changed"] is False
+    assert len(opened) == 1  # same torpedo: no new OpenRocket window
+    bench.decide({"index": 1, "verdict": "rejected"})
+
+    fins = bench.propose({"preset": "fins"})["iterations"][-1]
+    assert fins["torpedo"]["changed"] is True
+    assert fins["changed_parts"] == ["torpedo"]
+    assert fins["geometry_changed_parts"] == []
+    assert fins["derived"] == bench.state["iterations"][0]["derived"]
+    assert opened[-1] == (tmp_path / "torpedo" / "v0002.ork", "Rocinante torpedo v2")
+    from rocinante.ork import read_ork
+    assert read_ork(opened[-1][0]).fins.sweep_m == pytest.approx(ROCINANTE.torpedo.fins.sweep_m + 0.01)
+
+    bench.decide({"index": 2, "verdict": "rejected"})
+    assert opened[-1][1] == "Rocinante torpedo v0"  # back to the accepted torpedo
+
+
+def test_auto_export_gives_the_viewer_real_geometry_for_every_revision(tmp_path, fake_blender):
+    bench = Workbench(tmp_path, auto_export=True)
+    baseline = bench.state["iterations"][0]["handoff"]
+    assert baseline["status"] == "baseline" and set(baseline["artifacts"]) == {"after"}
+    assert (tmp_path / "exports" / "v0000" / "after.glb").read_bytes().startswith(b"glTF")
+
+    proposal = bench.propose({"preset": "drive"})["iterations"][-1]
+    assert proposal["handoff"]["status"] == "exported"
+    assert (tmp_path / "exports" / "v0001" / "before.glb").exists()
+    # A reload neither re-exports the baseline nor loses the pair.
+    reloaded = Workbench(tmp_path, auto_export=True).state["iterations"]
+    assert reloaded[0]["handoff"]["artifacts"] == baseline["artifacts"]
+    assert reloaded[1]["handoff"]["status"] == "exported"

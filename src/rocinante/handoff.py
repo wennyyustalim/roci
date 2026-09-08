@@ -39,6 +39,20 @@ def export_pair(out: Path, current: dict, parent: dict) -> dict:
     return artifacts
 
 
+def export_baseline(out: Path, entry: dict) -> dict:
+    """The accepted baseline has no parent; export just its own geometry for the viewer."""
+    directory = out / "exports" / f"v{entry['index']:04d}"
+    directory.mkdir(parents=True, exist_ok=True)
+    spec = ShipSpec.model_validate(entry["spec"])
+    (directory / "after.json").write_text(spec.model_dump_json(indent=2))
+    mesh_path = build_ship_mesh(spec, directory / "after.glb")
+    return {"after": {
+        "file": str(mesh_path.relative_to(out)),
+        "sha256": hashlib.sha256(mesh_path.read_bytes()).hexdigest(),
+        "bytes": mesh_path.stat().st_size,
+    }}
+
+
 def verified_pair(out: Path, artifacts: dict) -> tuple[Path, Path]:
     paths = []
     for side in ("before", "after"):
