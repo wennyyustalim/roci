@@ -10,6 +10,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+.worktree-port
 
 # Build products of the design loop
 out/
