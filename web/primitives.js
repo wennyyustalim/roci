@@ -485,7 +485,7 @@ export function createScene(container) {
   renderer.domElement.addEventListener("pointercancel",event=>{activePointers.delete(event.pointerId);press=null;});
   renderer.domElement.addEventListener("lostpointercapture",event=>{activePointers.delete(event.pointerId);press=null;});
   renderer.domElement.setAttribute("tabindex","0");
-  renderer.domElement.setAttribute("aria-label","Explore the Rocinante. Click the hull to reveal decks, then click a deck, crew member, torpedo or distant landmark to zoom. Press Escape to reset view.");
+  renderer.domElement.setAttribute("aria-label","Explore the Rocinante. Click the hull to disassemble or reassemble the ship. Click a deck, crew member, torpedo or distant landmark to zoom. Press Escape to reset view.");
   renderer.domElement.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   return {
     fit, reset, focus,

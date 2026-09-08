@@ -317,11 +317,13 @@ def demo(
     # Seeding OpenRocket's saved window geometry only takes at launch, so this
     # has to run before the workbench opens the baseline torpedo.
     if openrocket and layout:
-        prepare_openrocket(quads["openrocket"])
+        from rocinante.demo import openrocket_running
+        if not openrocket_running():
+            prepare_openrocket(quads["openrocket"])
 
     bench = Workbench(
         out, live=live, show_blender=blender, show_openrocket=openrocket,
-        auto_export=True, auto_accept=True, auto_share=share, torpedo_only=True,
+        auto_export=True, auto_accept=True, auto_share=share, torpedo_only=False,
         on_share_url=show_in_kord,
         blender_geometry=blender_geometry(quads["blender"], height) if layout else None,
         openrocket_bounds=quads.get("openrocket"),
@@ -362,7 +364,7 @@ def demo(
     if blender:
         table.add_row("Blender", "the ship, live", f"watching {out / 'blender-current.json'}")
     table.add_row("OpenRocket", "the torpedo, live" if openrocket else "NOT INSTALLED",
-                  f"{bench.torpedo_path}; reopens when a refit changes the torpedo")
+                  f"{bench.torpedo_path}; updates the existing document when selection or design changes")
     table.add_row("Kord", "auto-shared" if share else "manual share",
                   kord if kord_up else f"{kord} [red]NOT ANSWERING[/]")
     console.print(table)

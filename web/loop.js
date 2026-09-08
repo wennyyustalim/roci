@@ -91,13 +91,8 @@ const deckDescriptions={
   "Machine shop":"Amos’s territory. A working bench, tool racks and service crates, ready for the next repair.",
   Engineering:"Naomi’s station. The reactor vessel, coolant manifolds and diagnostic consoles above the Epstein drive.",
 };
-let expanded=false;
 el("canvas").addEventListener("assemblychange",event=>{
-  const detail=event.detail; expanded=detail.expanded;
-  el("disassemble").disabled=!detail.decks.length;
-  el("disassemble").setAttribute("aria-pressed",String(expanded));
-  el("disassemble").innerHTML=`<span class="explode-icon" aria-hidden="true">${expanded ? "▰" : "▱"}</span> ${expanded ? "Assemble Roci" : "Disassemble Roci"}`;
-  el("assembly-status").textContent=detail.moving ? (expanded ? "Separating hull, decks and drive…" : "Bringing the Roci back together…") : detail.subject ? `${detail.subject} · drag to orbit` : detail.focus!==null ? "Inside the Roci · drag to orbit" : expanded ? "Click a deck or crew member to step inside" : "Six decks. Four crew. One home.";
+  const detail=event.detail;
   const selected=detail.decks.find(d=>d.index===detail.focus);
   el("deck-detail").hidden=!selected;
   if(selected) {
@@ -107,7 +102,6 @@ el("canvas").addEventListener("assemblychange",event=>{
     el("deck-crew").textContent=selected.crew.length ? `ON STATION / ${selected.crew.join(" · ")}` : "HABITABLE DECK";
   }
 });
-el("disassemble").onclick=()=>scene?.setExpanded(!expanded);
 el("all-decks").onclick=()=>scene?.fit();
 el("presentation").onclick=()=>{
   const on=document.body.classList.toggle("presentation");

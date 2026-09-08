@@ -119,7 +119,7 @@ export function createAssembly(models, camera, controls, container) {
     if(!piece) return false;
     if(piece.kind==="crew") focus(piece.index,piece.object);
     else if(piece.kind==="deck") focus(piece.index);
-    else if(piece.kind==="hull") expand(true);
+    else if(piece.kind==="hull") expand(!(target>0));
     else return false;
     return true;
   }

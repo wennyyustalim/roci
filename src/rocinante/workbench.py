@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -23,6 +24,7 @@ from rocinante.kord import KordClient
 from rocinante.ork import write_ork
 from rocinante.samples import ROCINANTE
 from rocinante.ship import ShipSpec
+from rocinante.spec import RocketSpec
 
 PRESETS = {
     "torpedoes": "Carry eight more torpedoes without losing cruise burn time",
@@ -159,6 +161,8 @@ class Workbench:
         self.lock = threading.RLock()
         self.path = out / "workbench.json"
         self.blender_spec_path = out / "blender-current.json"
+        self.selection_path = out / "selection.json"
+        self.integration_status = {}
         self.torpedo_dir = out / "torpedo"
         self.torpedo_path: Path | None = None
         self._torpedo_shown: str | None = None
@@ -200,20 +204,68 @@ class Workbench:
         temporary.write_text(json.dumps(current["spec"], indent=2))
         temporary.replace(self.blender_spec_path)
         self.publish_torpedo(ShipSpec.model_validate(current["spec"]), current["index"])
+        self.publish_selection(current)
 
     # Blender watches the spec file itself; the old name survives for callers.
     refresh_blender = publish_current
 
+    def displayed(self):
+        current = self.state["iterations"][-1]
+        return self.state["iterations"][self.state["accepted"]] if current["status"] == "rejected" else current
+
+    def target_ship(self, current, torpedo_id=None):
+        ship = ShipSpec.model_validate(current["spec"])
+        if torpedo_id:
+            ship.torpedo = RocketSpec.model_validate(current.get("torpedoes", {}).get(torpedo_id, ship.torpedo.model_dump()))
+        return ship
+
+    def validate_target(self, torpedo_id, current):
+        valid = {f"torpedo_{i+1:02d}" for i in range(current["spec"]["weapons"]["torpedo_tubes"])}
+        if torpedo_id is not None and (not isinstance(torpedo_id, str) or torpedo_id not in valid):
+            raise ValueError("That torpedo is no longer aboard this revision")
+        return torpedo_id
+
+    def select(self, payload):
+        current = self.displayed()
+        target = self.validate_target(payload.get("torpedo_id"), current)
+        self.state["selected_torpedo"] = target
+        self.save()
+        self.publish_selection(current)
+        return self.snapshot()
+
+    def publish_selection(self, current):
+        target = self.state.get("selected_torpedo")
+        try:
+            self.validate_target(target, current)
+        except ValueError:
+            target = self.state["selected_torpedo"] = None
+            self.save()
+        ship = self.target_ship(current, target)
+        path = self.torpedo_dir / (f"v{current['index']:04d}-{target}.ork" if target else f"v{current['index']:04d}.ork")
+        name = f"{ship.name} {target.replace('_', ' ') if target else 'general torpedo'} v{current['index']}"
+        write_ork(ship.torpedo.model_copy(update={"name": name}), path)
+        self.torpedo_path = path
+        command = {"request_id": time.time_ns(), "torpedo_id": target, "revision": current["index"],
+                   "torpedoes": current.get("torpedoes", {}), "file": str(path.resolve()), "name": name}
+        temporary = self.selection_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(command))
+        temporary.replace(self.selection_path)
+        if self.show_openrocket:
+            from rocinante.openrocket_live import show_in_openrocket
+            try:
+                self.integration_status["openrocket"] = show_in_openrocket(path, self.selection_path, self.openrocket_bounds)
+            except Exception as exc:
+                logging.getLogger(__name__).exception("OpenRocket live update failed")
+                self.integration_status["openrocket"] = {"status": "error", "message": str(exc)}
+        if self.show_blender:
+            self.integration_status["blender"] = {"status": "pending", "request_id": command["request_id"]}
+
     def publish_torpedo(self, ship: ShipSpec, index: int):
-        """One `.ork` per revision. OpenRocket is reopened only when the torpedo itself changed."""
-        digest = ship.torpedo.model_dump_json()
+        """Keep the general design's immutable artifact beside each revision."""
         name = f"{ship.name} torpedo v{index}"
         self.torpedo_path = write_ork(
             ship.torpedo.model_copy(update={"name": name}), self.torpedo_dir / f"v{index:04d}.ork"
         )
-        if self.show_openrocket and digest != self._torpedo_shown:
-            open_openrocket(self.torpedo_path, name, self.openrocket_bounds)
-            self._torpedo_shown = digest
 
     def export_baseline(self):
         base = self.state["iterations"][0]
@@ -249,13 +301,26 @@ class Workbench:
         temporary.replace(self.path)
 
     def snapshot(self):
-        return {**self.state, "mode": "live" if self.live else "fixture", "presets": TORPEDO_PRESETS if self.torpedo_only else PRESETS,
+        target = self.state.get("selected_torpedo")
+        scoped = bool(target) or self.torpedo_only
+        integrations = dict(self.integration_status)
+        for app in ("blender", "openrocket"):
+            try:
+                reply = json.loads(self.selection_path.with_name(f"{app}-selection-status.json").read_text())
+                command = json.loads(self.selection_path.read_text())
+                if reply.get("request_id") == command["request_id"]:
+                    integrations[app] = reply
+            except (OSError, ValueError):
+                pass
+        return {**self.state, "mode": "live" if self.live else "fixture", "presets": TORPEDO_PRESETS if scoped else PRESETS,
                 "model": model_name() if self.live else None,
                 "kord_base": KordClient().base_url,
                 "openrocket": self.show_openrocket, "blender": self.show_blender,
                 "auto_accept": self.auto_accept, "auto_share": self.auto_share,
-                "sample_asks": TORPEDO_ASKS if self.torpedo_only else SAMPLE_ASKS,
+                "sample_asks": TORPEDO_ASKS if scoped else SAMPLE_ASKS,
                 "torpedo_only": self.torpedo_only,
+                "selected_torpedo": target, "integrations": integrations,
+                "workshop_torpedo": torpedo_summary(self.target_ship(self.displayed(), target)),
                 "torpedo_file": str(self.torpedo_path) if self.torpedo_path else None}
 
     def revision(self, payload: dict):
@@ -294,10 +359,12 @@ class Workbench:
             what = "ship"
         else:
             # Only the torpedo moved: compare the torpedoes themselves.
-            before = self.torpedo_dir / f"v{parent['index']:04d}.ork"
-            after = self.torpedo_dir / f"v{current['index']:04d}.ork"
-            if not before.is_file():
-                write_ork(ShipSpec.model_validate(parent["spec"]).torpedo, before)
+            target = current.get("target_torpedo")
+            suffix = f"-{target}" if target else ""
+            before = self.torpedo_dir / f"v{parent['index']:04d}{suffix}.ork"
+            after = self.torpedo_dir / f"v{current['index']:04d}{suffix}.ork"
+            write_ork(self.target_ship(parent, target).torpedo, before)
+            write_ork(self.target_ship(current, target).torpedo, after)
             what = "torpedo"
         handoff.update(status="sharing", error=None, compared=what)
         self.save()
@@ -329,25 +396,36 @@ class Workbench:
         if self.state["iterations"][-1]["status"] == "pending":
             raise ValueError("Approve or reject the pending proposal first")
         parent = self.state["accepted"]
-        ship = ShipSpec.model_validate(self.state["iterations"][parent]["spec"])
+        previous = self.state["iterations"][parent]
+        target = self.validate_target(payload.get("torpedo_id", self.state.get("selected_torpedo")), previous)
+        ship = self.target_ship(previous, target)
+        scoped = bool(target) or self.torpedo_only
         if self.live:
             ask = payload.get("ask", "")
             if not isinstance(ask, str) or not ask.strip() or len(ask) > 2000:
                 raise ValueError("Enter a refit request of 1–2000 characters")
-            after = RefitAgent(build_meshes=False, torpedo_only=self.torpedo_only).propose(ship, ask)
+            after = RefitAgent(build_meshes=False, torpedo_only=scoped).propose(ship, ask)
         else:
-            presets = TORPEDO_PRESETS if self.torpedo_only else PRESETS
-            preset = payload.get("preset", "fins" if self.torpedo_only else "torpedoes")
+            presets = TORPEDO_PRESETS if scoped else PRESETS
+            preset = payload.get("preset", "fins" if scoped else "torpedoes")
             if not isinstance(preset, str) or preset not in presets:
                 raise ValueError("Choose a supported fixture preset")
             ask = presets[preset]
             after = fixture_proposal(ship, preset)
-        if self.torpedo_only:
+        if scoped:
             validate_static_ship(ship, after)
         result = RefitResult(ask=ask, before=ship, after=after, diff=diff_ships(ship, after))
         index = len(self.state["iterations"])
         entry = self.entry(after, index, "approved" if self.auto_accept else "pending", result)
-        entry.update(parent=parent, ask=ask, source="live" if self.live else "fixture")
+        overrides = dict(previous.get("torpedoes", {}))
+        if target:
+            overrides[target] = after.torpedo.model_dump(mode="json")
+            # The shared design stays intact; only this loaded round owns the edit.
+            entry["spec"] = {**previous["spec"], "rationale": after.rationale}
+            entry["changes"] = [f"{target}: {change}" for change in entry["changes"]]
+        valid_ids = {f"torpedo_{i+1:02d}" for i in range(entry["spec"]["weapons"]["torpedo_tubes"])}
+        entry.update(torpedoes={k: v for k, v in overrides.items() if k in valid_ids},
+                     target_torpedo=target, parent=parent, ask=ask, source="live" if self.live else "fixture")
         if self.live:
             entry["model"] = model_name()
         self.state["iterations"].append(entry)
@@ -445,6 +523,8 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
                 with workbench.lock:
                     if self.path == "/api/propose":
                         state = workbench.propose(payload)
+                    elif self.path == "/api/select":
+                        state = workbench.select(payload)
                     elif self.path == "/api/decide":
                         state = workbench.decide(payload)
                     elif self.path == "/api/export":
