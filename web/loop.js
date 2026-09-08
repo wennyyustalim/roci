@@ -1,6 +1,6 @@
 const el=id=>document.getElementById(id);
 const setOptionalText=(id,value)=>{const node=el(id);if(node) node.textContent=value;};
-let launching=false, launchRequest=0, desktopClock=null;
+let launching=false, launchRequest=0, desktopClock=null, launchPresentation=null;
 let state, scene, busy=false, pollTimer=null, selectedTorpedo=null, selectionVersion=0, selectionSync=Promise.resolve(), syncTimer=null;
 const fmt=(n,d=1)=>n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 async function api(path,payload) {
@@ -44,7 +44,7 @@ function render() {
   renderScope();
   syncStatus(state);
   el("preset").hidden=state.mode!=="fixture"; el("ask").hidden=state.mode!=="live"; el("samples").hidden=state.mode!=="live";
-  el("propose").textContent=state.mode==="live" ? "Ask Astra →" : "Run fixture →";
+  el("propose").textContent=state.mode==="live" ? "Ask gpt-6-astra" : "Run fixture →";
   el("propose").disabled=busy || launching;
   el("title").textContent=`${it.name} · v${it.index}`;
   el("comparison").textContent=prev ? `${it.ask}` : "Salvaged Martian gunship · home to the crew";
@@ -88,11 +88,12 @@ async function propose() {
 }
 
 function renderScope() {
-  el("launch").hidden=!selectedTorpedo;
-  el("launch").disabled=busy || launching || !scene;
-  el("launch").textContent=launching ? "Launch in progress…" : "Launch torpedo ↗";
+  for(const launch of document.querySelectorAll(".torpedo-launch")) {
+    launch.disabled=busy || launching || !scene;
+    launch.textContent=launching ? "Launch in progress…" : "Launch";
+  }
   const workshop=selectedTorpedo ? `${selectedTorpedo.replace("torpedo_","Torpedo ")} workshop` : "General workshop";
-  el("workshop-title").textContent=state.mode==="fixture" ? `${workshop} · Fixture` : `${workshop} · ${state.model}`;
+  el("workshop-title").textContent=state.mode==="fixture" ? `${workshop} · Fixture` : workshop;
   setOptionalText("workshop-scope",selectedTorpedo ? "Refits apply only to this loaded torpedo." : "No torpedo selected · general refit");
   if(el("clear-selection")) el("clear-selection").hidden=!selectedTorpedo;
   el("ask").placeholder=selectedTorpedo ? "How should Astra refit this torpedo?" : "What should Astra change on the Roci?";
@@ -134,6 +135,7 @@ function syncStatus(snapshot) {
 function selectModel(selection) {
   const id=selection.kind==="torpedo" ? selection.id : null;
   if(launching) return;
+  setPresentation(Boolean(id));
   selectedTorpedo=id; const version=++selectionVersion;
   renderScope(); el("propose").disabled=true; setOptionalText("selection-sync","Syncing selection…");
   selectionSync=selectionSync.catch(()=>{}).then(async()=>{
@@ -159,6 +161,15 @@ function launchBusy(on) {
   el("propose").disabled=on || busy;
   renderScope();
 }
+function setPresentation(on) {
+  document.body.classList.toggle("presentation",on);
+  el("presentation").setAttribute("aria-pressed",String(on));
+  const label=on ? "Expand sidebar" : "Collapse sidebar";
+  el("presentation").setAttribute("aria-label",label);
+  el("presentation").title=label;
+  el("sidebar-toggle-icon").textContent=on ? "›" : "‹";
+  requestAnimationFrame(()=>scene?.fit());
+}
 function desktopSample(phase,time,force=false) {
   const clock=desktopClock;if(!clock) return;
   clock.time=time;
@@ -173,11 +184,16 @@ function desktopSample(phase,time,force=false) {
 function cancelLaunch() {
   desktopSample("cancelled",desktopClock?.time || 0,true);desktopClock=null;
   ++launchRequest; scene?.cancelLaunch(); launchBusy(false);el("launch-hud").hidden=true;
+  if(launchPresentation!==null) setPresentation(launchPresentation);
+  launchPresentation=null;
 }
-el("launch").onclick=async()=>{
+async function launchTorpedo(target=selectedTorpedo) {
   if(launching || busy || !selectedTorpedo || !scene) return;
+  if(target!==selectedTorpedo) return;
   scene.cancelLaunch();desktopClock=null;
-  const request=++launchRequest, target=selectedTorpedo, index=current().index;
+  const request=++launchRequest, index=current().index;
+  launchPresentation=document.body.classList.contains("presentation");
+  setPresentation(true);
   launchBusy(true);el("launch-hud").hidden=false;
   el("launch-desktop").textContent="";
   el("launch-phase").textContent="Running OpenRocket…";
@@ -214,7 +230,8 @@ el("launch").onclick=async()=>{
     launchBusy(false);el("launch-phase").textContent="Launch unavailable";
     el("launch-caption").textContent=error.message;el("cancel-launch").textContent="Close";
   }
-};
+}
+el("canvas").addEventListener("launchrequest",event=>launchTorpedo(event.detail.id));
 el("cancel-launch").onclick=()=>{cancelLaunch();if(selectedTorpedo) scene?.selectTorpedo(selectedTorpedo,false);};
 addEventListener("keydown",event=>{if(event.key==="Escape" && launching) {cancelLaunch();scene?.reset();}});
 el("canvas").addEventListener("launchchange",({detail:d})=>{
@@ -262,10 +279,7 @@ el("canvas").addEventListener("assemblychange",event=>{
 });
 el("all-decks").onclick=()=>scene?.fit();
 el("presentation").onclick=()=>{
-  const on=document.body.classList.toggle("presentation");
-  el("presentation").setAttribute("aria-pressed",String(on));
-  el("presentation").textContent=on ? "Show workshop" : "Presentation mode";
-  requestAnimationFrame(()=>scene?.fit());
+  setPresentation(!document.body.classList.contains("presentation"));
 };
 el("rotate").onchange=()=>scene?.setRotate(el("rotate").checked);
 el("fit").onclick=()=>{cancelLaunch();scene?.reset();};

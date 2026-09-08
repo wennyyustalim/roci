@@ -8,6 +8,7 @@ import json
 import math
 import sys
 from itertools import pairwise
+from pathlib import Path
 
 import bpy
 
@@ -659,6 +660,144 @@ def deck_layout(spec):
     return result
 
 
+def _cabinet(b, x, y, z, width=.8, height=1.8):
+    """Recessed door, gasket, pull, vents and a positive locking latch."""
+    _box(b, (x, y, z + height / 2), (width, .38, height), "dark")
+    _box(b, (x, y + .20, z + height / 2), (width - .07, .05, height - .08), "panel")
+    _box(b, (x + width * .3, y + .25, z + height * .52), (.04, .07, .24), "edge")
+    _box(b, (x + width * .3, y + .29, z + height * .4), (.10, .04, .05), "amber")
+    for i in range(5):
+        _box(b, (x, y + .23, z + .12 + i * .05), (width * .55, .012, .015), "dark")
+    _box(b, (x - width * .2, y + .235, z + height * .82), (width * .22, .015, .09), "white")
+
+
+def _room_shell(b, rx, ry, z, height, index):
+    """Rear pressure shell and service bays, open toward the cutaway camera."""
+    back, top = -ry * .76, min(height - .16, 3.3)
+    # Inset wall panels with visible seals, fasteners and overhead cable trays.
+    count = max(3, int(rx * 1.3))
+    pitch = rx * 1.38 / count
+    for i in range(count):
+        x = -rx * .69 + (i + .5) * pitch
+        _box(b, (x, back + .095, z + top / 2), (pitch - .045, .055, top - .14), "panel")
+        for dx in (-pitch * .39, pitch * .39):
+            for zz in (.15, top - .15):
+                _disc(b, (x + dx, back + .128, z + zz), (0, 1, 0), .024, "edge", 8)
+        _box(b, (x, back + .16, z + top - .25), (pitch * .75, .13, .11), "dark")
+        _box(b, (x, back + .24, z + top - .26), (pitch * .65, .02, .035), "light")
+    for side in (-1, 1):
+        # Knee-height side lining and sloping structural ribs.
+        xx = side * rx * .72
+        _box(b, (xx, back * .35, z + .40), (.12, ry * .78, .8), "hull")
+        for yy in (back + .15, back * .35):
+            _box(b, (xx, yy, z + top * .44), (.16, .18, top * .88), "edge")
+            _cylinder(b, (xx, yy, z + top * .87), (xx * .80, yy, z + top), .09, "edge")
+        for level in range(3):
+            _cylinder(b, (side * rx * .62, back + .27, z + top - .10 - level * .10),
+                      (side * .3, back + .27, z + top - .10 - level * .10), .025, "edge")
+        _cylinder(b, (xx, back + .4, z + .92), (xx, .15, z + .92), .045, "amber")
+    # Raised, segmented nonslip walkway with narrow drainage slots.
+    for i in range(max(2, int(ry * 1.1 / .32))):
+        yy = -ry * .45 + i * .32
+        _box(b, (0, yy, z + .025), (min(1.35, rx * .55), .29, .035), "dark")
+        for xx in (-.38, -.19, 0, .19, .38):
+            _box(b, (xx, yy, z + .045), (.018, .22, .013), "edge")
+    # Flush access cover beneath the ladder, with a hazard-marked coaming.
+    lx = -rx * .65
+    _box(b, (lx, -.3, z + .018), (.78, .82, .028), "dark")
+    for dx in (-.4, .4):
+        _box(b, (lx + dx, -.3, z + .05), (.055, .9, .045), "amber")
+    # Deck identity expressed as small stencilled bars, plus emergency kit.
+    for i in range(index + 1):
+        _box(b, (-rx * .55 + i * .09, back + .14, z + top * .72), (.04, .018, .16), "white")
+    _box(b, (rx * .58, back + .30, z + .65), (.32, .22, .5), "paint")
+    _box(b, (rx * .58, back + .42, z + .65), (.20, .015, .045), "white")
+    _box(b, (rx * .58, back + .43, z + .65), (.045, .015, .20), "white")
+
+
+def _room_equipment(b, kind, index, rx, ry, z):
+    back = -ry * .76
+    if kind == "ops":
+        # Flight instruments and tactile switch banks around the crash couch.
+        for side in (-1, 1):
+            _screen(b, side * rx * .30, back + .28, z + 2.18, rx * .42, .48)
+            for row in range(3):
+                for col in range(5):
+                    _box(b, (side * rx * .45 + (col - 2) * .09, .63, z + .9 + row * .1),
+                         (.05, .035, .035), "amber" if col == row else "white")
+            _cylinder(b, (side * .44, .25, z + .92), (side * .44, .32, z + 1.18), .045, "dark")
+        if index != 0:
+            # Tactical plotting rings and contacts on the existing table.
+            for radius in (.24, .45, .57):
+                for i in range(48):
+                    a, aa = math.tau * i / 48, math.tau * (i + 1) / 48
+                    _cylinder(b, (radius * math.cos(a), 1.05 + radius * math.sin(a), z + 1.125),
+                              (radius * math.cos(aa), 1.05 + radius * math.sin(aa), z + 1.125), .009, "amber", facets=4)
+            _cabinet(b, -rx * .42, back + .4, z, .85, 1.8)
+    elif kind == "crew":
+        for side in (-1, 1):
+            x = side * rx * .45
+            for yy in (-1.35, .95):
+                for dx in (-.68, .68):
+                    _box(b, (x + dx, yy, z + 1.15), (.065, .065, 2.3), "edge")
+            for level in (0, 1):
+                zz = z + .48 + level * 1.15
+                _box(b, (x, -1.31, zz + .43), (1.35, .07, .72), "hull")
+                _box(b, (x, -1.26, zz + .70), (.65, .045, .045), "light")
+                # Folded blanket seams and restraint straps.
+                for dx in (-.4, 0, .4):
+                    _box(b, (x + dx, .22, zz + .297), (.018, 1.04, .012), "fabric")
+                _box(b, (x, .48, zz + .31), (1.24, .07, .02), "amber")
+            _cabinet(b, side * .52, back + .35, z, .85, 2.1)
+    elif kind == "galley":
+        for side in (-1, 1):
+            _cabinet(b, side * rx * .44, back + .30, z + 1.66, rx * .30, .68)
+        # Sink inset, faucet, food canisters and restrained cups.
+        sx = -rx * .30
+        _box(b, (sx, back + .64, z + 1.121), (.65, .52, .018), "dark")
+        _box(b, (sx, back + .64, z + 1.128), (.51, .39, .014), "edge")
+        _cylinder(b, (sx, back + .32, z + 1.1), (sx, back + .32, z + 1.43), .028, "edge")
+        _cylinder(b, (sx, back + .32, z + 1.43), (sx, back + .55, z + 1.43), .028, "edge")
+        for i in range(5):
+            xx = -rx * .12 + i * .19
+            _cylinder(b, (xx, back + .45, z + 1.12), (xx, back + .45, z + 1.41), .07, "white", facets=16)
+            _box(b, (xx, back + .526, z + 1.29), (.08, .01, .10), "paint")
+        for x in (-rx * .4, 0, rx * .4):
+            for j in range(3):
+                _box(b, (x, back + 1.07, z + .16 + j * .29), (rx * .32, .02, .21), "dark")
+                _box(b, (x, back + 1.1, z + .24 + j * .29), (rx * .21, .055, .025), "edge")
+    elif kind == "machine":
+        # Toolboard, drawer units, bench vise, drill press and spare pipework.
+        _box(b, (0, back + .14, z + 1.72), (rx * 1.12, .08, .94), "dark")
+        for i in range(12):
+            x = (i - 5.5) * rx * .085
+            _cylinder(b, (x, back + .23, z + 1.42), (x, back + .23, z + 1.85 + i % 3 * .08), .025, "edge")
+            _tube(b, (x, back + .20, z + 1.91 + i % 3 * .08), (x, back + .26, z + 1.91 + i % 3 * .08), .065, .038, "edge", facets=10)
+        for side in (-1, 1):
+            for j in range(4):
+                _box(b, (side * rx * .38, back + 1.44, z + .17 + j * .2), (rx * .30, .04, .16), "panel")
+                _box(b, (side * rx * .38, back + 1.49, z + .2 + j * .2), (rx * .18, .045, .028), "edge")
+        _box(b, (-.8, back + .9, z + 1.18), (.45, .4, .25), "dark")
+        for dx in (-.22, .22):
+            _box(b, (-.8 + dx, back + .9, z + 1.37), (.12, .43, .14), "edge")
+        _cylinder(b, (.9, back + .6, z + 1.1), (.9, back + .6, z + 2), .065, "edge")
+        _box(b, (.9, back + .78, z + 1.91), (.35, .6, .28), "paint")
+        _cylinder(b, (.9, back + 1, z + 1.77), (.9, back + 1, z + 1.48), .025, "edge")
+    else:
+        for side in (-1, 1):
+            # Flanged coolant lines, valve wheels and containment supports.
+            xx = side * 1.5
+            for zz in (.45, 1.5, 2.1):
+                _tube(b, (xx, -.8, z + zz), (xx, -.8, z + zz + .09), .18, .1, "edge", facets=16)
+            _cylinder(b, (xx, -.8, z + 1.1), (xx, -.45, z + 1.1), .06, "edge")
+            _tube(b, (xx, -.45, z + 1.1), (xx, -.4, z + 1.1), .23, .19, "paint", facets=20)
+            for i in range(4):
+                a = math.tau * i / 4
+                _cylinder(b, (xx, -.42, z + 1.1), (xx + .20 * math.cos(a), -.42, z + 1.1 + .20 * math.sin(a)), .016, "edge")
+            _cylinder(b, (side * .8, 0, z + 1.85), (side * 1.2, .15, z + .12), .09, "edge")
+            _cabinet(b, side * rx * .57, back + .40, z, .8, 2.2)
+
+
 def build_decks(spec):
     """Furnished room modules; furniture/crew travel with their deck on reveal.
 
@@ -672,9 +811,11 @@ def build_decks(spec):
         add_faceted_shell(b, [(z - .16, rx, ry), (z, rx, ry)], "panel")
         # Floor tiles, luminous edge strips and rear ribs leave a cutaway side.
         for x in range(-int(rx * .7), int(rx * .7) + 1):
-            _box(b, (x, 0, z + .012), (.025, ry * 1.55, .015), "dark")
+            extent = faceted_y_at_x(rx, ry, x) * 1.96
+            _box(b, (x, 0, z + .012), (.025, extent, .015), "dark")
         for y in range(-int(ry * .7), int(ry * .7) + 1):
-            _box(b, (0, y, z + .014), (rx * 1.55, .025, .015), "dark")
+            extent = faceted_y_at_x(ry, rx, y) * 1.96
+            _box(b, (0, y, z + .014), (extent, .025, .015), "dark")
         for side in (-1, 1):
             _box(b, (side * rx * .76, 0, z + .025), (.045, ry * .9, .04), "screen")
         back = -ry * .76
@@ -682,6 +823,7 @@ def build_decks(spec):
         for x in (-rx * .64, 0, rx * .64):
             _box(b, (x, back + .08, z + 1.2), (.12, .18, 2.4), "edge")
         _box(b, (0, back + .1, z + 2.28), (rx * 1.26, .12, .06), "light")
+        _room_shell(b, rx, ry, z, height, index)
         # Interdeck ladder / hatch and a short safety railing.
         lx = -rx * .65
         for dx in (-.28, .28):
@@ -716,7 +858,7 @@ def build_decks(spec):
                     _box(b, (x, -.2, zz + .14), (1.22, 2.12, .18), "fabric")
                     _box(b, (x, -.85, zz + .26), (.9, .45, .16), "white")
                     _box(b, (x, .22, zz + .25), (1.23, 1.1, .08), "paint")
-            _screen(b, 0, back + .2, z + 1.35, 1, .8)
+            _screen(b, 0, back + .2, z + 2.55, 1, .6)
         elif kind == "galley":
             _box(b, (0, back + .6, z + .52), (rx * 1.22, .9, 1.04), "panel")
             _box(b, (0, back + .6, z + 1.07), (rx * 1.25, 1, .09), "edge")
@@ -733,7 +875,16 @@ def build_decks(spec):
             _cylinder(b, (0, .6, z + .86), (0, .6, z + .97), 1.35, "panel", facets=6)
             for i in range(4):
                 a = math.tau * i / 4
-                _chair(b, 1.75 * math.cos(a), .6 + 1.75 * math.sin(a), z)
+                cx, cy = 1.75 * math.cos(a), .6 + 1.75 * math.sin(a)
+                start = len(b.verts)
+                _chair(b, cx, cy, z)
+                # Chairs face inward around the galley table.
+                angle = a + math.pi / 2
+                for j in range(start, len(b.verts)):
+                    vx, vy, vz = b.verts[j]
+                    dx, dy = vx - cx, vy - cy
+                    b.verts[j] = (cx + dx * math.cos(angle) - dy * math.sin(angle),
+                                  cy + dx * math.sin(angle) + dy * math.cos(angle), vz)
                 _cylinder(b, (.8 * math.cos(a), .6 + .8 * math.sin(a), z + .97),
                           (.8 * math.cos(a), .6 + .8 * math.sin(a), z + 1.10), .13, "white")
         elif kind == "machine":
@@ -757,9 +908,12 @@ def build_decks(spec):
                 for i in range(3):
                     x = side * (1.5 + i * .32)
                     _cylinder(b, (x, -.8, z + .15), (x, -.8, z + 2.35), .10, "amber" if i == 0 else "edge")
-                _screen(b, side * rx * .48, back + .2, z + 1.45, 1.2, .9)
+                _screen(b, side * rx * .32, back + .2, z + 1.55, 1.2, .9)
             crew = [("Naomi", 1.7, .9, False)]
+        _room_equipment(b, kind, index, rx, ry, z)
         obj = tag(mesh_from(name, b), name)
+        bevel = obj.modifiers.new("Machined edge highlights", "BEVEL")
+        bevel.width, bevel.segments = .012, 2
         obj["assembly_kind"] = "deck"
         # Metadata is in browser axes (Y up), independent of Blender's Z up.
         obj["assembly_offset"] = [0, (2.5 - index) * 2.8, -1.5]
@@ -812,9 +966,53 @@ def apply_materials(objects):
         make("crew_hair", (0.019, 0.013, 0.012, 1), 0.0, 0.97),
         make("galley_greens", (0.06, 0.28, 0.08, 1), 0.0, 0.8),
     )
+    # Locally bundled online PBR images are embedded in the GLB, so rooms also
+    # work offline. Separate interior copies preserve the exterior palette.
+    interior = list(materials)
+    for key, asset in (("panel", "Metal032"), ("edge", "Metal032"),
+                       ("fabric", "Fabric032")):
+        slot = MATERIAL_KEYS.index(key)
+        material = materials[slot].copy()
+        material.name = "interior_" + key
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        shader = nodes["Principled BSDF"]
+        for suffix, socket in (("Color", "Base Color"), ("Roughness", "Roughness"),
+                               ("NormalGL", "Normal")):
+            texture = nodes.new("ShaderNodeTexImage")
+            texture.image = bpy.data.images.load(str(Path(__file__).parent / "textures" /
+                                                    f"{asset}_1K-JPG_{suffix}.jpg"), check_existing=True)
+            if suffix != "Color":
+                texture.image.colorspace_settings.name = "Non-Color"
+            if suffix == "NormalGL":
+                normal = nodes.new("ShaderNodeNormalMap")
+                normal.inputs["Strength"].default_value = .32 if key == "fabric" else .22
+                links.new(texture.outputs["Color"], normal.inputs["Color"])
+                links.new(normal.outputs["Normal"], shader.inputs[socket])
+            elif suffix == "Color":
+                tint = nodes.new("ShaderNodeMixRGB")
+                tint.blend_type = "MULTIPLY"
+                tint.inputs[0].default_value = 1
+                tint.inputs[2].default_value = (
+                    (.07, .12, .17, 1) if key == "fabric" else (.46, .51, .54, 1))
+                links.new(texture.outputs["Color"], tint.inputs[1])
+                links.new(tint.outputs[0], shader.inputs[socket])
+            else:
+                links.new(texture.outputs["Color"], shader.inputs[socket])
+        interior[slot] = material
     for obj in objects:
-        for material in materials:
+        is_room = obj.get("assembly_kind") in ("deck", "crew")
+        for material in interior if is_room else materials:
             obj.data.materials.append(material)
+        if is_room:
+            # Meter-scaled planar coordinates, independently projected on each
+            # face to avoid stretched grain on thin cabinet and chair edges.
+            uv = obj.data.uv_layers.new(name="SurfaceMeters")
+            for polygon in obj.data.polygons:
+                axis = max(range(3), key=lambda i: abs(polygon.normal[i]))
+                axes = ((1, 2), (0, 2), (0, 1))[axis]
+                for loop_index in polygon.loop_indices:
+                    point = obj.data.vertices[obj.data.loops[loop_index].vertex_index].co
+                    uv.data[loop_index].uv = (point[axes[0]] * 2, point[axes[1]] * 2)
 
 
 def frame_camera(objects):

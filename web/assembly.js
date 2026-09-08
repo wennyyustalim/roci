@@ -72,8 +72,13 @@ export function createAssembly(models, camera, controls, container) {
           decks.push({object,index:data.deck_index,name:data.deck_label,crew:[]});
         } else if(data.assembly_kind==="torpedo") {
           const element=document.createElement("span"); element.className="part-label torpedo-label";
-          element.textContent=data.torpedo_id?.replace("torpedo_","TORPEDO ") || "TORPEDO"; layer.append(element);
-          labels.push({object,element,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.06,center.z)),torpedo:true});
+          const name=document.createElement("span");
+          name.textContent=data.torpedo_id?.replace("torpedo_","Torpedo ") || "Torpedo";
+          const launch=document.createElement("button"); launch.type="button"; launch.className="torpedo-launch"; launch.textContent="Launch";
+          launch.setAttribute("aria-label",`Launch ${name.textContent}`);
+          launch.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("launchrequest",{detail:{id:data.torpedo_id}}));});
+          element.append(name,launch); layer.append(element);
+          labels.push({object,element,launch,local:object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.06,center.z)),torpedo:true});
         } else if(data.assembly_kind==="crew") {
           // Crew remains selectable and available in deck detail, but only
           // torpedoes receive an on-canvas label in the focused UI.
@@ -149,6 +154,7 @@ export function createAssembly(models, camera, controls, container) {
       const visible=!suspended && (l.torpedo ? l.object.visible && (focusObject===l.object || amount>.94) : amount>.94) && point.z<1 && point.z>-1 && Math.abs(point.x)<.94 && Math.abs(point.y)<.94 &&
         (l.torpedo ? focusIndex===null : l.crew ? focusIndex===l.index : focusIndex===null);
       l.element.hidden=!visible;
+      if(l.launch) l.launch.hidden=focusObject!==l.object;
       if(visible) {l.element.style.left=`${(point.x*.5+.5)*width}px`;l.element.style.top=`${(-point.y*.5+.5)*height}px`;}
     }
   }

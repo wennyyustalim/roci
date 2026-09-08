@@ -12,9 +12,6 @@
 
   <header class="hud">
     <div><h1 id="title">Rocinante</h1><p id="comparison"></p></div>
-    <div class="header-actions">
-      <button id="presentation" class="quiet" type="button" aria-pressed="false">Presentation mode</button>
-    </div>
   </header>
 
   <div id="deck-detail" hidden><span class="eyebrow" id="deck-number"></span><h2 id="deck-title"></h2><p id="deck-description"></p><span id="deck-crew"></span><button id="all-decks" class="quiet" type="button">← All decks</button></div>
@@ -29,14 +26,15 @@
   </div>
   <aside class="panel">
     <form id="proposal">
-      <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
+      <div class="workshop-heading">
+        <button id="clear-selection" class="quiet back-button" type="button" aria-label="Back" title="Back" hidden>←</button>
+        <label for="ask" class="eyebrow"><span id="workshop-title">General workshop</span></label>
+      </div>
       <p id="workshop-scope" class="form-intro">Select a loaded torpedo to edit it.</p>
-      <button id="launch" type="button" hidden>Launch torpedo ↗</button>
-      <button id="clear-selection" class="quiet" type="button" hidden>← All torpedoes</button>
       <select id="preset" aria-label="Fixture refit" hidden></select>
       <textarea id="ask" rows="3" maxlength="2000" placeholder="Tell Astra how to equip the Roci with torpedoes…" aria-label="Refit request"></textarea>
       <div id="samples" class="chips" aria-label="Sample requests"></div>
-      <button id="propose" type="submit">Ask Astra →</button>
+      <button id="propose" type="submit">Ask gpt-6-astra</button>
       <p id="selection-sync" role="status" aria-live="polite"></p>
     </form>
     <p id="status" role="status" aria-live="polite">Loading the ship…</p>
@@ -56,6 +54,7 @@
     <dl id="metrics"></dl>
     <h3>Spec changes</h3><ul id="changes"></ul>
   </aside>
+  <button id="presentation" class="sidebar-toggle" type="button" aria-pressed="false" aria-label="Collapse sidebar" title="Collapse sidebar"><span id="sidebar-toggle-icon" aria-hidden="true">‹</span></button>
 
   <div class="controls">
     <label><input id="ghost" type="checkbox"> Previous hull</label>

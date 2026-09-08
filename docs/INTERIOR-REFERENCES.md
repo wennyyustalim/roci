@@ -29,6 +29,39 @@ not scanned or downloaded likenesses. Furniture and people follow their room
 module during the assembly animation. The two armor halves retain the semantic
 `hull_body` review tag. All reveal transforms exist only in the viewer.
 
+## Detailed room pass
+
+The September 2026 room pass uses the online SYFY stills above for recessed
+galley drawers, restrained supplies, metal cabinetry, structural ribs and
+tactical plotting rings. These production images are reference only. Added
+workshop tools, bunk fixtures and engineering valves are original interpretive
+geometry, not a claim of a screen-exact set reconstruction.
+
+Actual online surface images are bundled in `src/rocinante/blend/textures`:
+
+- [ambientCG Metal 032](https://ambientcg.com/view?id=Metal032): 1K JPG color,
+  OpenGL normal and roughness maps for interior panels and exposed metal.
+- [ambientCG Fabric 032](https://ambientcg.com/view?id=Fabric032): 1K JPG color,
+  OpenGL normal and roughness maps for cushions, bedding and flight suits.
+- Both assets are released under [CC0](https://docs.ambientcg.com/license/).
+  Retrieved 8 September 2026. They are embedded into the exported GLB; no runtime
+  image host, external credentials or network request is needed.
+
+Each room has sealed wall panels, fasteners, service conduits, task-light
+fixtures, handrails, a nonslip walkway and an emergency kit. Furniture details
+follow room function: cockpit switch banks; ops plotting rings; crew lockers and
+bunk restraints; galley sink, faucet and canisters; workshop vise, drill press
+and tools; engineering flanges, valve wheels and vessel supports. Small bevels
+provide edge highlights. World-scale face UVs keep material grain consistent.
+
+To inspect the exported asset room by room:
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/render-rooms.py
+```
+
+This produces six images under `out/room-previews/` from the actual GLB.
+
 `web/rocinante.glb` is the generated demo asset, so a fresh demo has a furnished
 ship even without Blender. Regenerate it after generator changes:
 
