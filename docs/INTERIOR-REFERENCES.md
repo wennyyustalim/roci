@@ -62,6 +62,11 @@ To inspect the exported asset room by room:
 
 This produces six images under `out/room-previews/` from the actual GLB.
 
+Room meshes carry `interior_revision: 2`. The browser refreshes older saved
+exports with these room and crew meshes when their floor stations and footprints
+match. It retains the revision's exterior geometry and never rewrites shared
+export files. Refits with different deck dimensions retain their own rooms.
+
 `web/rocinante.glb` is the generated demo asset, so a fresh demo has a furnished
 ship even without Blender. Regenerate it after generator changes:
 

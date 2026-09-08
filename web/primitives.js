@@ -37,21 +37,18 @@ function schematicShip(spec, changed, ghost, geometryChanged=[]) {
   return group;
 }
 
-// Loaded rounds stay at their physical spec dimensions, on their launch rails.
+// Enlarge the displayed round to fill its launch rail; simulation specs stay in metres.
 function loadedTorpedo(spec, id, bay) {
   const group=buildTorpedo(spec,id);
   const length=spec.nose.length_m+spec.body.reduce((sum,t)=>sum+t.length_m,0);
   const r=spec.body.at(-1).outer_radius_m, fins=spec.fins;
   const box=new THREE.Box3().setFromObject(bay), center=box.getCenter(new THREE.Vector3());
-  const side=Math.sign(center.z || -1), clearance=r+fins.height_m+.04;
-  group.position.set(center.x,center.y-length/2,side<0 ? box.min.z-clearance : box.max.z+clearance);
-  group.userData.launch_position=[center.x,box.max.y-length,center.z];
+  const scale=Math.max(1,(box.max.y-box.min.y)*.9/length);
+  group.scale.setScalar(scale);
+  const side=Math.sign(center.z || -1), clearance=(r+fins.height_m)*scale+.04;
+  group.position.set(center.x,center.y-length*scale/2,side<0 ? box.min.z-clearance : box.max.z+clearance);
+  group.userData.launch_position=group.position.toArray();
   group.userData.assembly_offset=[Math.sign(center.x || 1)*5,0,side*11];
-  // A small screen-space ring marks the actual round without scaling its mesh.
-  const c=document.createElement("canvas"); c.width=c.height=64; const ctx=c.getContext("2d");
-  ctx.strokeStyle="#ffc568";ctx.lineWidth=3;ctx.beginPath();ctx.arc(32,32,23,0,Math.PI*2);ctx.stroke();
-  const marker=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false,sizeAttenuation:false,toneMapped:false}));
-  marker.position.y=length/2;marker.scale.set(.014,.014,1);marker.userData.torpedoMarker=true;group.add(marker);
   return group;
 }
 
@@ -377,8 +374,10 @@ export function createScene(container) {
     root.traverse(object=> {
       if(!object.isMesh || !partOf(object).startsWith("tube_")) return;
       const paint=original=> {
-        const material=original.clone(); material.color.lerp(new THREE.Color(0xffbd61),.65);
-        if(material.emissive) { material.emissive.set(0xffa52f); material.emissiveIntensity=.5; }
+        const material=original.clone();
+        const shade=material.color.getHSL({}).l;
+        material.color.setHSL(.57,.08,shade);
+        if(material.emissive) { material.emissive.set(0x000000); material.emissiveIntensity=0; }
         return material;
       };
       const originals=Array.isArray(object.material) ? object.material : [object.material];
@@ -426,6 +425,34 @@ export function createScene(container) {
     try { return (await glbCache.get(source.key)).clone(true); }
     catch(error) { glbCache.delete(source.key); throw error; }
   }
+  async function refreshInterior(root) {
+    const rooms=[];
+    root.traverse(o=>{if(o.userData.assembly_kind==="deck") rooms.push(o);});
+    if(!rooms.some(o=>(o.userData.interior_revision || 0)<2)) return;
+    const detailed=await loadGlb({url:"/rocinante.glb",key:"demo-interior-v2"});
+    const replacements=new Map();
+    detailed.traverse(o=>{if(o.userData.rocinante_part) replacements.set(o.userData.rocinante_part,o);});
+    const upgraded=new Set();
+    for(const room of rooms) {
+      const next=replacements.get(room.userData.rocinante_part);
+      if(!next || (room.userData.interior_revision || 0)>=2) continue;
+      // Only refresh rooms with the same floor station and footprint. A refit
+      // that changes hull dimensions or deck layout keeps its own geometry.
+      const a=new THREE.Box3().setFromObject(room).getSize(new THREE.Vector3());
+      const b=new THREE.Box3().setFromObject(next).getSize(new THREE.Vector3());
+      if(Math.abs(room.userData.deck_station-next.userData.deck_station)>.01 ||
+         Math.abs(a.x-b.x)>.05 || Math.abs(a.z-b.z)>.05) continue;
+      const parent=room.parent;
+      parent.remove(room); parent.add(next);
+      upgraded.add(room.userData.deck_index);
+    }
+    const crew=[];
+    root.traverse(o=>{if(o.userData.assembly_kind==="crew" && upgraded.has(o.userData.deck_index)) crew.push(o);});
+    for(const member of crew) {
+      const next=replacements.get(member.userData.rocinante_part);
+      if(next) {const parent=member.parent; parent.remove(member); parent.add(next);}
+    }
+  }
   function centre(root) { // Keep the Roci at the origin whatever Blender's origin was.
     const box=new THREE.Box3().setFromObject(root); if(box.isEmpty()) return root;
     const c=box.getCenter(new THREE.Vector3()); root.position.sub(c); return root;
@@ -464,10 +491,6 @@ export function createScene(container) {
       if(child.userData.spin) child.rotation.z+=child.userData.spin*dt;
       if(child.userData.field) child.userData.field.uniforms.time.value+=dt;
     });
-    for(const round of torpedoes.values()) {
-      const marker=round.children.find(o=>o.userData.torpedoMarker);
-      if(marker) marker.visible=camera.position.distanceTo(round.getWorldPosition(new THREE.Vector3()))>4;
-    }
     launch.tick(dt);
     if(!assembly.movingCamera && !launch.active) controls.update();
     renderer.render(scene,camera);
@@ -487,6 +510,27 @@ export function createScene(container) {
     clearSelection();
   }
   const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
+  function paddedTorpedoHit(rect, visible) {
+    // Screen-space picking must not require a second precise mesh hit.
+    const cursor=new THREE.Vector2((pointer.x+1)*rect.width/2,(1-pointer.y)*rect.height/2);
+    let best=null, bestDistance=Infinity;
+    for(const [id,round] of torpedoes) {
+      if(!visible(round)) continue;
+      const length=round.userData.length_m;
+      const start=round.localToWorld(new THREE.Vector3(0,length*.1,0)).project(camera);
+      const end=round.localToWorld(new THREE.Vector3(0,length*.9,0)).project(camera);
+      if(start.z < -1 || start.z > 1 || end.z < -1 || end.z > 1) continue;
+      const a=new THREE.Vector2((start.x+1)*rect.width/2,(1-start.y)*rect.height/2);
+      const b=new THREE.Vector2((end.x+1)*rect.width/2,(1-end.y)*rect.height/2);
+      const axis=b.clone().sub(a);
+      const t=THREE.MathUtils.clamp(cursor.clone().sub(a).dot(axis)/Math.max(axis.lengthSq(),.001),0,1);
+      const nearest=a.clone().addScaledVector(axis,t), distance=nearest.distanceTo(cursor);
+      if(distance>32 || distance>=bestDistance) continue;
+      best={kind:"torpedo",id}; bestDistance=distance;
+    }
+    return best;
+  }
+  container.addEventListener("torpedoselect",event=>selectTorpedo(event.detail.id));
   function hitAt(event) {
     if(launch.active) return null;
     const rect=renderer.domElement.getBoundingClientRect();
@@ -494,12 +538,20 @@ export function createScene(container) {
     scene.updateMatrixWorld(true); camera.updateMatrixWorld(); raycaster.setFromCamera(pointer,camera);
     const visible=object=> { for(let p=object;p;p=p.parent) if(!p.visible || p.userData.assemblyGhost) return false; return true; };
     const hits=raycaster.intersectObjects([models,far],true);
+    // Direct mesh hits win when neighboring padded targets overlap.
+    const first=hits.find(hit=>hit.object.isMesh && visible(hit.object));
+    for(let node=first?.object;node;node=node.parent) {
+      if(node.userData.torpedo_id) return {kind:"torpedo",id:node.userData.torpedo_id};
+    }
+    const padded=paddedTorpedoHit(rect,visible);
+    if(padded) return padded;
     for(const hit of hits) {
-      if((!hit.object.isMesh && !hit.object.userData.torpedoMarker) || !visible(hit.object)) continue;
+      if(!hit.object.isMesh || !visible(hit.object)) continue;
       for(let node=hit.object;node;node=node.parent) {
         if(node.userData.torpedo_id) return {kind:"torpedo",id:node.userData.torpedo_id};
         const part=partOf(node);
-        if(part.startsWith("tube_") && torpedoes.has(part.replace("tube_","torpedo_"))) return {kind:"torpedo",id:part.replace("tube_","torpedo_")};
+        // The visible round is the only torpedo target; its mounting hardware is inert.
+        if(part.startsWith("tube_")) return null;
         if(Object.values(far.userData.landmarks).includes(node)) return {kind:"landmark",name:node.name};
       }
       if(assembly.selectable(hit.object)) return {kind:"part",object:hit.object};
@@ -557,7 +609,7 @@ export function createScene(container) {
       const request=++loadRequest;
       const artifacts=current.handoff?.artifacts;
       const exportedSource=artifactSource(artifacts?.after);
-      const afterSource=exportedSource || {url:"/rocinante.glb",key:"demo-interior-v1"}, beforeSource=previous ? artifactSource(artifacts?.before) : null;
+      const afterSource=exportedSource || {url:"/rocinante.glb",key:"demo-interior-v2"}, beforeSource=previous ? artifactSource(artifacts?.before) : null;
       const keepCamera=framed;
       if(afterSource) {
         try {
@@ -566,11 +618,12 @@ export function createScene(container) {
           if(!hasInterior) {
             // Older exports remain immutable. Upgrade the demo presentation,
             // retaining the actual revision's launch cassettes.
-            const detailed=await loadGlb({url:"/rocinante.glb",key:"demo-interior-v1"});
+            const detailed=await loadGlb({url:"/rocinante.glb",key:"demo-interior-v2"});
             for(const o of [...detailed.children]) if(o.userData.rocinante_part?.startsWith("tube_")) detailed.remove(o);
             for(const o of [...after.children]) if(o.userData.rocinante_part?.startsWith("tube_")) detailed.add(o);
             after=detailed;
           }
+          await Promise.all([refreshInterior(after),before ? refreshInterior(before) : null]);
           if(request!==loadRequest) return "stale";
           const geometryGroups=current.geometry_changed_parts ?? [];
           const beforeGeometry=before ? geometrySignatures(before) : new Map();

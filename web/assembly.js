@@ -72,8 +72,10 @@ export function createAssembly(models, camera, controls, container) {
           decks.push({object,index:data.deck_index,name:data.deck_label,crew:[]});
         } else if(data.assembly_kind==="torpedo") {
           const element=document.createElement("span"); element.className="part-label torpedo-label";
-          const name=document.createElement("span");
+          const name=document.createElement("button"); name.type="button"; name.className="torpedo-select";
           name.textContent=data.torpedo_id?.replace("torpedo_","Torpedo ") || "Torpedo";
+          name.setAttribute("aria-label",`Select ${name.textContent}`);
+          name.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{id:data.torpedo_id}}));});
           const launch=document.createElement("button"); launch.type="button"; launch.className="torpedo-launch"; launch.textContent="Launch";
           launch.setAttribute("aria-label",`Launch ${name.textContent}`);
           launch.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("launchrequest",{detail:{id:data.torpedo_id}}));});

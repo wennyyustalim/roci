@@ -915,6 +915,7 @@ def build_decks(spec):
         bevel = obj.modifiers.new("Machined edge highlights", "BEVEL")
         bevel.width, bevel.segments = .012, 2
         obj["assembly_kind"] = "deck"
+        obj["interior_revision"] = 2
         # Metadata is in browser axes (Y up), independent of Blender's Z up.
         obj["assembly_offset"] = [0, (2.5 - index) * 2.8, -1.5]
         obj["deck_label"] = deck["name"]
@@ -989,13 +990,14 @@ def apply_materials(objects):
                 links.new(texture.outputs["Color"], normal.inputs["Color"])
                 links.new(normal.outputs["Normal"], shader.inputs[socket])
             elif suffix == "Color":
-                tint = nodes.new("ShaderNodeMixRGB")
+                tint = nodes.new("ShaderNodeMix")
+                tint.data_type = "RGBA"
                 tint.blend_type = "MULTIPLY"
                 tint.inputs[0].default_value = 1
-                tint.inputs[2].default_value = (
+                tint.inputs[7].default_value = (
                     (.07, .12, .17, 1) if key == "fabric" else (.46, .51, .54, 1))
-                links.new(texture.outputs["Color"], tint.inputs[1])
-                links.new(tint.outputs[0], shader.inputs[socket])
+                links.new(texture.outputs["Color"], tint.inputs[6])
+                links.new(tint.outputs[2], shader.inputs[socket])
             else:
                 links.new(texture.outputs["Color"], shader.inputs[socket])
         interior[slot] = material

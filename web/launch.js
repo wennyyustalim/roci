@@ -31,6 +31,7 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
     if(end<=0 || samples.some((s,i)=>i>0 && s[0]<=samples[i-1][0])) throw new Error("Invalid OpenRocket sample timing.");
     const root=new THREE.Group();scene.add(root);
     const round=buildTorpedo(data.spec,"training-round");root.add(round);round.visible=false;
+    round.scale.copy(loaded.scale);
     const flame=new THREE.Mesh(new THREE.ConeGeometry(.22,2.4,16),material(0x83dfff));
     flame.rotation.z=Math.PI;flame.position.y=-1.2;round.add(flame);
     const glow=new THREE.PointLight(0xffb66a,15,12);round.add(glow);
@@ -68,14 +69,23 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
     // Nose contact determines impact, not a wall-clock timeout.
     r.impact=r.points.at(-1).clone();
     const direction=r.points.at(-1).clone().sub(r.points.at(-2)).normalize();
-    r.impact.addScaledVector(direction,r.round.userData.length_m);
+    r.impact.addScaledVector(direction,r.round.userData.length_m*r.round.scale.y);
     r.crossing=new THREE.Vector3(16,0,5);
     r.drone.position.copy(r.impact).sub(r.crossing);r.drone.visible=true;r.tag.hidden=false;
-    const box=new THREE.Box3().setFromPoints([r.origin,new THREE.Vector3(-12,-30,-12),new THREE.Vector3(12,40,12)]);
-    const sphere=box.getBoundingSphere(new THREE.Sphere());
-    const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
-    assembly.moveCamera(sphere.center,sphere.radius/Math.sin(fov/2)*1.18,new THREE.Vector3(.8,.35,-1));
+    r.round.position.copy(r.origin);
+    const initialDirection=r.points[1].clone().sub(r.points[0]).normalize();
+    if(initialDirection.lengthSq()) r.round.quaternion.setFromUnitVectors(up,initialDirection);
+    // Stay outside the selected launch rail as the camera closes in.
+    r.cameraDirection=new THREE.Vector3(.8,.35,Math.sign(r.origin.z) || -1).normalize();
+    const framing=flightFrame(r);
+    assembly.moveCamera(framing.center,framing.distance,r.cameraDirection.clone());
     r.phase="tracking";emit("tracking");
+  }
+  function flightFrame(r) {
+    const center=r.round.localToWorld(new THREE.Vector3(0,r.round.userData.length_m/2,0));
+    const radius=Math.max(8,r.round.userData.length_m*r.round.scale.y*1.5);
+    const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
+    return {center,distance:radius/Math.sin(fov/2)*1.18};
   }
   function tick(dt) {
     const r=run;if(!r) return;
@@ -95,13 +105,12 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
       r.round.position.lerpVectors(r.points[r.cursor],r.points[r.cursor+1],f);
       const direction=r.points[r.cursor+1].clone().sub(r.points[r.cursor]).normalize();
       if(direction.lengthSq()) r.round.quaternion.setFromUnitVectors(up,direction);
-      // Start at ship scale, then pull back with the projectile. The Roci stays
-      // in frame throughout; a long OR ascent never makes the launch itself tiny.
-      const framing=new THREE.Box3().setFromPoints([r.round.position.clone().add(new THREE.Vector3(0,8,0)),new THREE.Vector3(-12,-30,-12),new THREE.Vector3(12,40,12)]).getBoundingSphere(new THREE.Sphere());
-      const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
-      const destination=framing.center.clone().addScaledVector(new THREE.Vector3(.8,.35,-1).normalize(),framing.radius/Math.sin(fov/2)*1.18);
-      const easing=1-Math.exp(-dt*5);
-      camera.position.lerp(destination,easing);controls.target.lerp(framing.center,easing);camera.lookAt(controls.target);
+      // Translate with the round at a steady distance. Smoothing its world
+      // position would let fast flights outrun the camera.
+      const framing=flightFrame(r);
+      controls.target.copy(framing.center);
+      camera.position.copy(framing.center).addScaledVector(r.cameraDirection,framing.distance);
+      camera.lookAt(controls.target);
       const thrust=THREE.MathUtils.lerp(a[5],b[5],f);
       r.flame.visible=thrust>.05;r.glow.intensity=thrust>.05 ? 15 : 0;
       r.flame.scale.set(1,1+.15*Math.sin(r.elapsed*45),1);

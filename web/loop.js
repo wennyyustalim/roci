@@ -168,7 +168,8 @@ function setPresentation(on) {
   el("presentation").setAttribute("aria-label",label);
   el("presentation").title=label;
   el("sidebar-toggle-icon").textContent=on ? "›" : "‹";
-  requestAnimationFrame(()=>scene?.fit());
+  // ResizeObserver updates the canvas when the sidebar changes. Fitting here
+  // clears the selected model and re-enters selectModel on every frame.
 }
 function desktopSample(phase,time,force=false) {
   const clock=desktopClock;if(!clock) return;
