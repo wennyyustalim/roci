@@ -67,11 +67,21 @@ ln -s "$PWD/bin/roci" ~/.local/bin/roci   # once; or use bin/roci directly
 roci demo
 ```
 
-`roci demo` is the whole setup. It loads `.env`, serves the workbench, and
-opens three windows: Chrome on the review UI, Blender on the ship under
-review, and OpenRocket on the latest torpedo (rewritten fresh from its spec).
-Live model proposals are the default when `OPENAI_API_KEY` is set; pass
-`--fixture` for the deterministic presets. Each window has a `--no-*` flag.
+`roci demo` is the whole setup. It loads `.env`, serves the torpedo bay UI,
+and tiles four windows into screen quadrants:
+
+```
+web UI   | OpenRocket
+---------+-----------
+Blender  | Kord
+```
+
+Every ask goes to Astra and becomes the ship: Blender rebuilds the hull,
+OpenRocket reopens the torpedo when it changed, and the comparison uploads
+to Kord in the background and appears in the Kord window. Live model
+proposals are the default when `OPENAI_API_KEY` is set; pass `--fixture`
+for the deterministic presets. Each window has a `--no-*` flag, and
+`--no-layout` leaves window placement alone.
 
 The Blender window watches the current proposal and regenerates the Roci in
 place whenever you propose a change (or restores the accepted ship when you

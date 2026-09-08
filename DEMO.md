@@ -29,9 +29,12 @@ requires approval or rejection before a new request; the status banner says so.
 
 ## Start
 
-One command. It loads `.env`, serves the workbench on port 3001, and opens
-Chrome (review UI), Blender (the ship under review) and OpenRocket (the latest
-torpedo, rewritten from its spec into `<out>/torpedo.ork`):
+One command. It loads `.env`, serves the torpedo bay UI on port 3001, and
+tiles the screen: web UI top-left, OpenRocket top-right, Blender bottom-left,
+Kord bottom-right. Every ask is accepted as the ship; there is no review step
+in this demo. The UI shows how each ask propagated (Astra, physics, Blender,
+OpenRocket, Kord) and offers sample asks that cover arming the ship: more
+tubes and magazine, tube placement along the hull, and the torpedo itself.
 
 ```bash
 uv sync --extra dev
