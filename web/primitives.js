@@ -63,6 +63,24 @@ function loadedTorpedo(spec, id, bay) {
   return group;
 }
 
+function attachLaunchBays(root, bays) {
+  const hulls=[];
+  root.updateMatrixWorld(true);
+  root.traverse(object=> {
+    if(object.userData.rocinante_part!=="hull_body" || object.parent?.userData.rocinante_part==="hull_body") return;
+    const box=new THREE.Box3().setFromObject(object);
+    hulls.push({object,box,center:box.getCenter(new THREE.Vector3())});
+  });
+  for(const bay of bays) {
+    const center=new THREE.Box3().setFromObject(bay).getCenter(new THREE.Vector3());
+    const hull=hulls.reduce((closest,candidate)=>!closest || candidate.box.distanceToPoint(center)<closest.box.distanceToPoint(center) ? candidate : closest,null);
+    if(!hull) continue;
+    // Launch hardware belongs to the hull, including in the exploded view.
+    // The generic part offset would detach the entire cassette from the ship.
+    bay.userData.assembly_offset=[...(hull.object.userData.assembly_offset || [Math.sign(hull.center.x || 1)*5,0,Math.sign(hull.center.z || 1)*11])];
+  }
+}
+
 // --- the sky ---------------------------------------------------------------
 
 function seeded(seed) { let s=seed>>>0; return ()=> { s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
@@ -417,6 +435,7 @@ export function createScene(container) {
     const bays=[]; root.traverse(o=>{if(o.userData.rocinante_part?.match(/^tube_\d+$/) && !o.parent?.userData.rocinante_part?.match(/^tube_\d+$/)) bays.push(o);});
     // Earlier detailed exports may already carry rounds; use the current instance specs.
     for(const object of [...root.children]) if(object.userData.assembly_kind==="torpedo") root.remove(object);
+    attachLaunchBays(root,bays);
     for(const bay of bays) {
       const id=bay.userData.rocinante_part.replace("tube_","torpedo_");
       const round=loadedTorpedo(current.torpedoes?.[id] || current.spec.torpedo,id,bay);

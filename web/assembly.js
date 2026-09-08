@@ -81,12 +81,12 @@ export function createAssembly(models, camera, controls, container) {
           launch.setAttribute("aria-label",`Launch ${title}`);
           launch.addEventListener("click",event=>{event.stopPropagation();container.dispatchEvent(new CustomEvent("launchrequest",{detail:{id:data.torpedo_id}}));});
           const leader=document.createElementNS("http://www.w3.org/2000/svg","svg");
-          leader.classList.add("torpedo-leader"); leader.setAttribute("viewBox","0 0 36 50"); leader.setAttribute("aria-hidden","true");
+          leader.classList.add("torpedo-leader"); leader.setAttribute("viewBox","0 0 1 1"); leader.setAttribute("aria-hidden","true");
           const path=document.createElementNS("http://www.w3.org/2000/svg","path");
           path.setAttribute("d","M 0 50 V 36 L 28 0 H 36"); leader.append(path);
           element.append(leader,name,launch); layer.append(element);
           // The leader terminates on the nose, and follows it while orbiting.
-          labels.push({object,element,launch,local:new THREE.Vector3(0,data.length_m,0),torpedo:true});
+          labels.push({object,element,launch,leaderPath:path,local:new THREE.Vector3(0,data.length_m,0),torpedo:true});
         } else if(data.assembly_kind==="crew") {
           // Crew remains selectable and available in deck detail, but only
           // torpedoes receive an on-canvas label in the focused UI.
@@ -157,13 +157,30 @@ export function createAssembly(models, camera, controls, container) {
     }
     models.updateMatrixWorld(true); camera.updateMatrixWorld();
     const width=container.clientWidth,height=container.clientHeight;
+    const placed=[];
     for(const l of labels) {
       const point=l.object.localToWorld(l.local.clone()).project(camera);
       const visible=!suspended && (l.torpedo ? l.object.visible && (focusObject===l.object || amount>.94) : amount>.94) && point.z<1 && point.z>-1 && Math.abs(point.x)<.94 && Math.abs(point.y)<.94 &&
         (l.torpedo ? focusIndex===null : l.crew ? focusIndex===l.index : focusIndex===null);
       l.element.hidden=!visible;
       if(l.launch) l.launch.hidden=focusObject!==l.object;
-      if(visible) {l.element.style.left=`${(point.x*.5+.5)*width}px`;l.element.style.top=`${(-point.y*.5+.5)*height}px`;}
+      if(visible) {
+        const x=(point.x*.5+.5)*width,y=(-point.y*.5+.5)*height;
+        const w=l.element.offsetWidth,h=l.element.offsetHeight;
+        let left=THREE.MathUtils.clamp(x+36,8,Math.max(8,width-w-8));
+        let top=THREE.MathUtils.clamp(y-50-h,8,Math.max(8,height-h-8));
+        // Keep neighbouring callouts readable and inside the viewport.
+        for(const other of placed) if(left<other.right+8 && left+w>other.left-8 && top<other.bottom+8 && top+h>other.top-8) {
+          if(other.right+8+w<width-8) left=other.right+8;
+          else top=other.bottom+8;
+        }
+        placed.push({left,top,right:left+w,bottom:top+h});
+        l.element.style.left=`${left}px`; l.element.style.top=`${top}px`;
+        if(l.leaderPath) {
+          const dx=x-left,dy=y-top-h;
+          l.leaderPath.setAttribute("d",`M ${dx} ${dy} V ${dy-14} L -8 0 H 0`);
+        }
+      }
     }
   }
   return {bind,expand,focus,frame,tick,pick,selectable,moveCamera,get movingCamera(){return !!cameraMove;},get moving(){return amount!==target;},

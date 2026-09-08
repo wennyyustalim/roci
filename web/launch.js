@@ -1,6 +1,98 @@
 import * as THREE from "three";
 import { buildTorpedo } from "./torpedo.js";
 
+// A miniature Death Star-style training target, built entirely from geometry.
+// The open polar cap gives the dish a real recess instead of a painted circle.
+function buildBattleStation() {
+  const body=new THREE.Group(), radius=1.8, dishAngle=.34;
+  let seed=1977;
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+  const canvas=document.createElement("canvas");canvas.width=2048;canvas.height=1024;
+  const ctx=canvas.getContext("2d");
+  ctx.fillStyle="#4d5155";ctx.fillRect(0,0,2048,1024);
+  for(let row=0;row<96;row++) {
+    const y=row*1024/96, height=1024/96;
+    for(let x=-random()*40;x<2048;) {
+      const width=12+Math.floor(random()*58), shade=83+Math.floor(random()*57);
+      ctx.fillStyle=`rgb(${shade},${shade+3},${shade+5})`;
+      ctx.fillRect(x+1,y+1,width-2,height-2);
+      ctx.fillStyle="rgba(215,225,230,.18)";ctx.fillRect(x+2,y+1,width-4,.7);
+      for(let i=0;i<width/6;i++) {
+        ctx.fillStyle=random()>.5 ? "#42484c" : "#92999d";
+        ctx.fillRect(x+3+random()*(width-6),y+3,1+random()*3,1+random()*4);
+      }
+      if(random()>.78) {
+        ctx.fillStyle="#c3cccf";
+        for(let i=0;i<3;i++) ctx.fillRect(x+4+i*3,y+height-3,1,.8);
+      }
+      x+=width;
+    }
+  }
+  // Broad service bands and a dark continuous equatorial trench.
+  for(const y of [218,350,674,806]) {
+    ctx.fillStyle="#444a4e";ctx.fillRect(0,y,2048,3);
+    ctx.fillStyle="#939a9d";ctx.fillRect(0,y+3,2048,1);
+  }
+  ctx.fillStyle="#151c22";ctx.fillRect(0,503,2048,18);
+  for(let x=0;x<2048;x+=9) {
+    ctx.fillStyle="#56616a";ctx.fillRect(x,506,3,12);
+    if(random()>.65) {ctx.fillStyle="#bbcbd2";ctx.fillRect(x,510,2,1);}
+  }
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+  texture.wrapS=THREE.RepeatWrapping;texture.anisotropy=4;
+  const hullMaterial=new THREE.MeshStandardMaterial({map:texture,bumpMap:texture,bumpScale:.009,metalness:.42,roughness:.78});
+  const dishMaterial=new THREE.MeshStandardMaterial({color:0x646d73,metalness:.5,roughness:.72,side:THREE.DoubleSide});
+  const rimMaterial=new THREE.MeshStandardMaterial({color:0x949ca0,metalness:.5,roughness:.65});
+  const darkMaterial=new THREE.MeshStandardMaterial({color:0x202a30,metalness:.4,roughness:.82});
+  const dishDirection=new THREE.Vector3(.32,.5,.8).normalize();
+  const orientation=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),dishDirection);
+  const hullGeometry=new THREE.SphereGeometry(radius,192,128,0,Math.PI*2,dishAngle,Math.PI-dishAngle);
+  hullGeometry.applyQuaternion(orientation);
+  const positions=hullGeometry.attributes.position, uv=hullGeometry.attributes.uv, point=new THREE.Vector3();
+  for(let i=0;i<positions.count;i++) {
+    point.fromBufferAttribute(positions,i);
+    // Keep panel courses horizontal even though the mesh pole follows the dish.
+    uv.setXY(i,.5+Math.atan2(point.z,point.x)/(Math.PI*2),.5+Math.asin(point.y/radius)/Math.PI);
+    if(Math.abs(point.y)<.05) point.multiplyScalar(.973);
+    positions.setXYZ(i,point.x,point.y,point.z);
+  }
+  hullGeometry.computeVertexNormals();
+  // Unwrap triangles crossing the texture seam to avoid stretched panel stripes.
+  const hullSurface=hullGeometry.toNonIndexed();hullGeometry.dispose();
+  const surfaceUv=hullSurface.attributes.uv;
+  for(let i=0;i<surfaceUv.count;i+=3) {
+    const values=[surfaceUv.getX(i),surfaceUv.getX(i+1),surfaceUv.getX(i+2)];
+    if(Math.max(...values)-Math.min(...values)>.5)
+      values.forEach((u,j)=>{if(u<.5) surfaceUv.setX(i+j,u+1);});
+  }
+  body.add(new THREE.Mesh(hullSurface,hullMaterial));
+  const dish=new THREE.Group();dish.quaternion.copy(orientation);body.add(dish);
+  const rimRadius=radius*Math.sin(dishAngle), rimHeight=radius*Math.cos(dishAngle);
+  const profile=[];
+  for(let i=0;i<=24;i++) {
+    const t=i/24;profile.push(new THREE.Vector2(rimRadius*t,rimHeight-.27*(1-t*t)));
+  }
+  dish.add(new THREE.Mesh(new THREE.LatheGeometry(profile,96),dishMaterial));
+  function ring(r,y,width,mat) {
+    const mesh=new THREE.Mesh(new THREE.TorusGeometry(r,width,8,96),mat);
+    mesh.rotation.x=-Math.PI/2;mesh.position.y=y;dish.add(mesh);
+  }
+  ring(rimRadius,rimHeight,.018,rimMaterial);
+  for(const t of [.28,.57,.82]) ring(rimRadius*t,rimHeight-.27*(1-t*t)+.003,.005,darkMaterial);
+  const ribPoints=[];
+  for(let i=0;i<24;i++) {
+    const angle=i*Math.PI/12;
+    for(let j=3;j<24;j++) {
+      for(const t of [j/24,(j+1)/24]) ribPoints.push(rimRadius*t*Math.cos(angle),rimHeight-.27*(1-t*t)+.004,rimRadius*t*Math.sin(angle));
+    }
+  }
+  dish.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position",new THREE.Float32BufferAttribute(ribPoints,3)),new THREE.LineBasicMaterial({color:0x343e45})));
+  const aperture=new THREE.Mesh(new THREE.CylinderGeometry(.068,.068,.012,32),darkMaterial);
+  aperture.position.y=rimHeight-.263;dish.add(aperture);
+  body.userData.radius=radius;
+  return body;
+}
+
 // Overlapping, soft turbulent volumes cool from fire to soot. Expansion is
 // radial in this space scene; there is no gravity-driven mushroom cloud.
 function buildExplosion() {
@@ -117,17 +209,13 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
     }
     const glow=new THREE.PointLight(0xffb66a,15,12);round.add(glow);
     const drone=new THREE.Group();root.add(drone);drone.visible=false;
-    const body=new THREE.Mesh(new THREE.OctahedronGeometry(1.1),new THREE.MeshStandardMaterial({color:0x567983,metalness:.6,roughness:.3}));drone.add(body);
-    for(const x of [-1.5,1.5]) {
-      const wing=new THREE.Mesh(new THREE.BoxGeometry(1.5,.12,1.5),new THREE.MeshStandardMaterial({color:0x253c4e,metalness:.6,roughness:.4}));wing.position.x=x;drone.add(wing);
-    }
-    const beacon=new THREE.Mesh(new THREE.SphereGeometry(.22,12,8),material(0xff8862));beacon.position.z=-1;drone.add(beacon);
-    const targetRing=new THREE.Mesh(new THREE.TorusGeometry(2.4,.035,8,64),material(0xff9975,.7));drone.add(targetRing);
+    const body=buildBattleStation();drone.add(body);
+    const targetRing=new THREE.Mesh(new THREE.TorusGeometry(2.3,.018,8,96),material(0xff9975,.4));drone.add(targetRing);
     const explosion=buildExplosion(), burst=explosion.root;root.add(burst);burst.visible=false;
     const trailGeometry=new THREE.BufferGeometry().setAttribute("position",new THREE.Float32BufferAttribute(new Float32Array((samples.length+2)*3),3));
     trailGeometry.setDrawRange(0,0);
     const trail=new THREE.Line(trailGeometry,new THREE.LineBasicMaterial({color:0xffbd7d,transparent:true,opacity:.65}));trail.frustumCulled=false;root.add(trail);
-    const tag=document.createElement("div");tag.className="training-target";tag.textContent="DRONE 01 / MOVING TARGET";tag.hidden=true;container.append(tag);
+    const tag=document.createElement("div");tag.className="training-target";tag.textContent="DEATH STAR / TRAINING TARGET";tag.hidden=true;container.append(tag);
     run={data,root,round,loaded,drone,body,targetRing,burst,explosion,flame,glow,trail,tag,samples,end,
       phase:"pullback",elapsed:0,clock:0,cursor:0,enabled:controls.enabled,rotate:controls.autoRotate,playbackRate:Math.min(1,end/9)};
     controls.enabled=false;controls.autoRotate=false;
@@ -149,6 +237,7 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
     if(initialDirection.lengthSq()) r.round.quaternion.setFromUnitVectors(up,initialDirection);
     // Stay outside the selected launch rail as the camera closes in.
     r.cameraDirection=new THREE.Vector3(.8,.35,Math.sign(r.origin.z) || -1).normalize();
+    r.body.rotation.y=Math.atan2(r.cameraDirection.x,r.cameraDirection.z)-.25;
     const framing=flightFrame(r);
     assembly.moveCamera(framing.center,framing.distance,r.cameraDirection.clone());
     r.phase="tracking";emit("tracking");
@@ -192,13 +281,13 @@ export function createLaunch({scene,camera,controls,assembly,container,torpedo})
       positions.setXYZ(r.cursor+1,...r.round.position.toArray());positions.needsUpdate=true;
       r.trail.geometry.setDrawRange(0,r.cursor+2);
       r.drone.position.copy(r.impact).addScaledVector(r.crossing,r.clock/r.end-1);
-      r.body.rotation.y+=dt*.7;
+      r.body.rotation.y+=dt*.035;
       const nose=r.round.localToWorld(new THREE.Vector3(0,r.round.userData.length_m,0));
       const range=nose.distanceTo(r.drone.position);
       emit("telemetry",{time:r.clock,speed:THREE.MathUtils.lerp(a[4],b[4],f),range,thrust});
-      if(range<1.15 || r.clock===r.end && range<2) {
+      if(range<r.body.userData.radius || r.clock===r.end && range<2) {
         r.phase="impact";r.clock=0;r.round.visible=false;r.drone.visible=false;
-        r.burst.position.copy(r.drone.position);r.burst.visible=true;r.tag.textContent="DRONE 01 / DESTROYED";
+        r.burst.position.copy(r.drone.position);r.burst.visible=true;r.tag.textContent="DEATH STAR / DESTROYED";
         r.impactCamera=camera.position.clone();r.impactLook=controls.target.clone();
         emit("impact");
       }
