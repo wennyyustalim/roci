@@ -12,6 +12,9 @@ build/
 .DS_Store
 .worktree-port
 
+# Local agent worktrees
+.claude/worktrees/
+
 # Build products of the design loop
 out/
 !out/.gitkeep
