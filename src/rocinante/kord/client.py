@@ -170,7 +170,19 @@ class KordClient:
         return True
 
     def upload_version(self, path: str | Path, note: str = "") -> dict:
-        """Upload `path` into the configured folder as a new version."""
+        """Upload `path` into the configured folder.
+
+        IMPORTANT, and confirmed against a running Kord: when the bytes are a
+        change to a file that already exists, this route OPENS THE REVIEW
+        SESSION ITSELF and answers
+
+            {"status": "review_session", "message": ..., "reviewSessionId": ...}
+
+        so there is nothing to create afterwards. A first upload of a new name
+        answers with the file instead. Read the session id back with
+        `review_session_id_from()`; do not call `open_review_session` on the
+        result, which would open a second, empty review pass.
+        """
         if not self.enabled:
             return {"skipped": True}
         self.sign_in()
@@ -183,13 +195,20 @@ class KordClient:
             )
         return self._json(resp, "upload")
 
-    def open_review_session(self, file_id: str) -> dict:
-        """Open a review pass on an existing file.
+    @staticmethod
+    def review_session_id_from(uploaded: dict) -> str | None:
+        """The session the upload already opened, if it opened one."""
+        return uploaded.get("reviewSessionId") or uploaded.get("review_session_id")
 
-        NOTE: there is no `POST /api/review-sessions` collection route. A
-        review session is created against a file -- `/api/files/{id}/review-session`
-        for a review-only pass, or the folder upload path when the bytes
-        themselves are the proposal.
+    def open_review_session(self, file_id: str) -> dict:
+        """Open a review-only pass on an existing file, changing no bytes.
+
+        Only for a file that is already there and is NOT being revised --
+        a markup pass. The refit path does not use this: uploading the new
+        hull is the proposal, and that route opens the session.
+
+        NOTE: there is no `POST /api/review-sessions` collection route; a
+        review session is always created against a file.
         """
         if not self.enabled or not file_id:
             return {"skipped": True, "id": None}

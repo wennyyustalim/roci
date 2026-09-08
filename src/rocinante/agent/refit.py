@@ -153,10 +153,10 @@ class RefitAgent:
             result.share_url = share.get("url")
 
         if kord.enabled and result.after_glb:
+            # Uploading the new hull IS the proposal: Kord opens the review
+            # session on the changed bytes and hands the id straight back.
             uploaded = kord.upload_version(result.after_glb, note=result.after.rationale)
-            file_id = uploaded.get("file_id") or uploaded.get("id") or ""
-            session = kord.open_review_session(file_id)
-            result.review_session_id = session.get("id")
+            result.review_session_id = kord.review_session_id_from(uploaded)
             if result.review_session_id:
                 kord.comment(result.review_session_id, result.review_body())
         return result

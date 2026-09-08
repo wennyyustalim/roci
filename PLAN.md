@@ -22,7 +22,16 @@ Verified this morning, before the clock started:
 - `blend/build_ship.py` regenerates the whole ship from a spec in **0.9 s**.
 - `KordClient.share_diff()` mints a live 3D diff on production Kord in one
   call, anonymously. Smoke-tested against two regenerated hulls.
+- The authenticated path, against **local** Kord: `astra@demo.withkord.com` is
+  provisioned in the Kord organization and allowlisted, sign-in works, and
+  uploading a hull opens a review session. One detail worth knowing — the
+  folder-upload route **opens the review session itself** and returns
+  `reviewSessionId`; there is nothing to create afterwards.
 - 33 tests, lint clean.
+
+Not yet verified: posting the comment onto that session, and reading its
+verdict. The dev server went down mid-test. Both are one call each and the
+session they attach to already exists.
 
 So the day starts with the demo's spine already standing. Everything below
 makes it *good*, not *exist*.
