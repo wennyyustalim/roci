@@ -56,7 +56,7 @@ export function createAssembly(models, camera, controls, container) {
       const ghost=!!root.userData.assemblyGhost;
       root.traverse(object=> {
         const data=object.userData, name=data.rocinante_part || object.name;
-        const semantic=data.assembly_kind || (/^(drive_|tube_|pdc_)/.test(name) && data.rocinante_part);
+        const semantic=data.assembly_kind || data.rocinante_part;
         if(!semantic) return;
         // A glTF semantic node may own multiple material meshes; move it once.
         if(object.parent?.userData.assembly_kind || object.parent?.userData.rocinante_part===name) return;
@@ -66,7 +66,7 @@ export function createAssembly(models, camera, controls, container) {
         const offset=data.assembly_offset ? new THREE.Vector3(...data.assembly_offset) :
           name.startsWith("drive_") ? new THREE.Vector3(0,name==="drive_bell" ? -13 : -8,0) :
           new THREE.Vector3(Math.sign(center.x || 1)*5,0,Math.sign(center.z || 1)*11);
-        pieces.push({object,base:object.position.clone(),offset,ghost,index:data.deck_index,kind:data.assembly_kind});
+        pieces.push({object,base:object.position.clone(),offset,ghost,index:data.deck_index,kind:data.assembly_kind || "part"});
         if(ghost) return;
         if(data.assembly_kind==="deck") {
           decks.push({object,index:data.deck_index,name:data.deck_label,crew:[]});
@@ -123,11 +123,13 @@ export function createAssembly(models, camera, controls, container) {
     if(piece.kind==="crew") focus(piece.index,piece.object);
     else if(piece.kind==="deck") focus(piece.index);
     else if(piece.kind==="hull") expand(!(target>0));
-    else return false;
-    return true;
+    else focus(null,piece.object);
+    if(piece.kind==="hull") return {kind:"ship",expanded:target>0};
+    if(piece.kind==="deck") return {kind:"deck",id:piece.index};
+    return {kind:piece.kind,id:piece.object.userData.rocinante_part || piece.object.name};
   }
   function selectable(object) {
-    return pieces.some(p=>!p.ghost && ["deck","crew","hull"].includes(p.kind) &&
+    return pieces.some(p=>!p.ghost && p.kind!=="torpedo" &&
       (p.object===object || p.object.getObjectById(object.id)));
   }
   function tick(now) {

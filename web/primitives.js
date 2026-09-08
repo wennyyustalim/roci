@@ -400,11 +400,13 @@ export function createScene(container) {
   }
   function selectTorpedo(id, notify=true) {
     if(launch.active) return;
+    launch.cancel();
     const round=torpedoes.get(id); if(!round) return;
     assembly.focus(null,round);
-    if(notify) container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{torpedo_id:id}}));
+    if(notify) container.dispatchEvent(new CustomEvent("modelselect",{detail:{kind:"torpedo",id}}));
   }
-  function clearSelection() { container.dispatchEvent(new CustomEvent("torpedoselect",{detail:{torpedo_id:null}})); }
+  function notifySelection(selection) { container.dispatchEvent(new CustomEvent("modelselect",{detail:selection})); }
+  function clearSelection() { notifySelection({kind:"ship",expanded:assembly.expanded}); }
   function dispose(root) {
     const primitive=root.userData.rocinantePrimitive;
     root.traverse(object=> {
@@ -474,15 +476,15 @@ export function createScene(container) {
     if(launch.active) return;
     if(name==="ship") { reset(); return; }
     const body=far.userData.landmarks[name]; if(!body) return;
-    clearSelection(); assembly.suspend();
+    assembly.suspend(); notifySelection({kind:"landmark",id:name});
     const radius=name==="ring" ? 570 : name==="tycho" ? 185 : 155;
     const direction=camera.position.clone().sub(body.position).normalize();
     assembly.moveCamera(body.position,frameDistance(radius,1.15),direction);
   }
   function reset() {
     launch.cancel();
-    clearSelection();
     if(assembly.ready) assembly.expand(false); else { assembly.suspend(); fit(); }
+    clearSelection();
   }
   const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
   function hitAt(event) {
@@ -523,7 +525,7 @@ export function createScene(container) {
     const hit=hitAt(event); if(!hit) { clearSelection(); assembly.frame(); return; }
     if(hit.kind==="landmark") focus(hit.name);
     else if(hit.kind==="torpedo") selectTorpedo(hit.id);
-    else { clearSelection(); assembly.pick(hit.object); }
+    else { const selection=assembly.pick(hit.object); if(selection) notifySelection(selection); }
   },{capture:true});
   renderer.domElement.addEventListener("pointercancel",event=>{activePointers.delete(event.pointerId);press=null;});
   renderer.domElement.addEventListener("lostpointercapture",event=>{activePointers.delete(event.pointerId);press=null;});
@@ -531,10 +533,22 @@ export function createScene(container) {
   renderer.domElement.setAttribute("aria-label","Explore the Rocinante. Click the hull to disassemble or reassemble the ship. Click a deck, crew member, torpedo or distant landmark to zoom. Press Escape to reset view.");
   renderer.domElement.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   return {
-    fit, reset, focus, selectTorpedo,
+    fit() { clearSelection(); fit(); }, reset, focus, selectTorpedo,
+    restoreSelection(selection) {
+      if(!selection || selection.kind==="ship") { if(selection?.expanded) assembly.expand(true); return; }
+      if(selection.kind==="torpedo") { selectTorpedo(selection.id,false); return; }
+      if(selection.kind==="landmark") {
+        const body=far.userData.landmarks[selection.id]; if(!body) return;
+        assembly.suspend();
+        assembly.moveCamera(body.position,frameDistance(selection.id==="ring" ? 570 : 185,1.15)); return;
+      }
+      if(selection.kind==="deck") { assembly.focus(selection.id); return; }
+      let object; models.traverse(o=>{if(!object && o.userData.rocinante_part===selection.id && !o.parent?.userData.assemblyGhost) object=o;});
+      if(object) assembly.focus(object.userData.deck_index ?? null,object);
+    },
     launch: data=>launch.start(data), cancelLaunch: ()=>launch.cancel(),
-    setExpanded(on) { if(launch.active) return; clearSelection(); assembly.expand(on); },
-    focusDeck(index) { if(launch.active) return; assembly.focus(index); },
+    setExpanded(on) { if(launch.active) return; assembly.expand(on); clearSelection(); },
+    focusDeck(index) { if(launch.active) return; assembly.focus(index); notifySelection({kind:"deck",id:index}); },
     setRotate(on) { if(!launch.active) controls.autoRotate=on; },
     async update(current,previous,{ghost,highlight}) {
       const signature=JSON.stringify([current.index,current.handoff?.artifacts,current.torpedoes,ghost,highlight]);

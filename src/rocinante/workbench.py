@@ -226,10 +226,39 @@ class Workbench:
             raise ValueError("That torpedo is no longer aboard this revision")
         return torpedo_id
 
+    def validate_selection(self, selection, current):
+        if not isinstance(selection, dict):
+            raise ValueError("Select a model in the scene")  # noqa: TRY004 -- selection validation contract
+        kind, ident = selection.get("kind"), selection.get("id")
+        spec = current["spec"]
+        if kind == "ship":
+            return {"kind": "ship", "expanded": selection.get("expanded") is True}
+        if kind == "torpedo":
+            if ident is None:
+                raise ValueError("Select a loaded torpedo")
+            return {"kind": kind, "id": self.validate_target(ident, current)}
+        if kind == "deck" and type(ident) is int and 0 <= ident < len(spec["decks"]):
+            return {"kind": kind, "id": ident}
+        valid = {
+            "crew": {f"crew_{c['name'].lower()}" for c in spec["crew"]},
+            "landmark": {"ceres", "tycho", "ring"},
+            "part": {"hull_body", "drive_cone", "drive_bell"}
+                | {f"pdc_{i+1:02d}" for i in range(spec["weapons"]["pdc_mounts"])}
+                | {f"tube_{i+1:02d}" for i in range(spec["weapons"]["torpedo_tubes"])},
+        }
+        if isinstance(kind, str) and isinstance(ident, str) and ident in valid.get(kind, set()):
+            return {"kind": kind, "id": ident}
+        raise ValueError("That model is not present in this revision")
+
     def select(self, payload):
         current = self.displayed()
-        target = self.validate_target(payload.get("torpedo_id"), current)
-        self.state["selected_torpedo"] = target
+        selection = payload.get("selection")
+        if selection is None:
+            target = self.validate_target(payload.get("torpedo_id"), current)
+            selection = {"kind": "torpedo", "id": target} if target else {"kind": "ship"}
+        selection = self.validate_selection(selection, current)
+        self.state["selected_model"] = selection
+        self.state["selected_torpedo"] = selection["id"] if selection["kind"] == "torpedo" else None
         self.save()
         self.publish_selection(current)
         return self.snapshot()
@@ -241,12 +270,20 @@ class Workbench:
         except ValueError:
             target = self.state["selected_torpedo"] = None
             self.save()
+        selection = self.state.get("selected_model") or (
+            {"kind": "torpedo", "id": target} if target else {"kind": "ship"})
+        try:
+            selection = self.validate_selection(selection, current)
+        except ValueError:
+            selection = {"kind": "ship", "expanded": False}
+        self.state["selected_model"] = selection
+        self.save()
         ship = self.target_ship(current, target)
         path = self.torpedo_dir / (f"v{current['index']:04d}-{target}.ork" if target else f"v{current['index']:04d}.ork")
         name = f"{ship.name} {target.replace('_', ' ') if target else 'general torpedo'} v{current['index']}"
         write_ork(ship.torpedo.model_copy(update={"name": name}), path)
         self.torpedo_path = path
-        command = {"request_id": time.time_ns(), "torpedo_id": target, "revision": current["index"],
+        command = {"request_id": time.time_ns(), "torpedo_id": target, "selection": selection, "revision": current["index"],
                    "torpedoes": current.get("torpedoes", {}), "file": str(path.resolve()), "name": name}
         temporary = self.selection_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(command))

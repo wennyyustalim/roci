@@ -514,3 +514,40 @@ def test_http_selection_and_general_scope(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+@pytest.mark.parametrize("selection", [
+    {"kind": "ship", "expanded": True},
+    {"kind": "deck", "id": 0},
+    {"kind": "crew", "id": "crew_naomi"},
+    {"kind": "part", "id": "drive_bell"},
+    {"kind": "part", "id": "pdc_01"},
+    *({"kind": "landmark", "id": name} for name in ("ceres", "tycho", "ring")),
+])
+def test_model_selection_publishes_blender_focus_and_clears_torpedo_scope(tmp_path, selection):
+    bench = Workbench(tmp_path, auto_accept=True)
+    bench.select({"torpedo_id": "torpedo_01"})
+    before = bench.displayed()
+    snapshot = bench.select({"selection": selection})
+    assert snapshot["selected_model"] == selection
+    assert snapshot["selected_torpedo"] is None
+    assert bench.displayed() == before
+    assert len(snapshot["iterations"]) == 1
+    command = json.loads(bench.selection_path.read_text())
+    assert command["selection"] == selection
+    assert command["torpedo_id"] is None
+    assert Workbench(tmp_path).snapshot()["selected_model"] == selection
+
+
+@pytest.mark.parametrize("selection", [
+    [], {"kind": []}, {"kind": "deck", "id": True}, {"kind": "deck", "id": -1},
+    {"kind": "deck", "id": 99}, {"kind": "landmark", "id": "earth"},
+    {"kind": "crew", "id": "crew_unknown"}, {"kind": "part", "id": "pdc_99"},
+    {"kind": "part", "id": "../camera"}, {"kind": "torpedo", "id": None},
+])
+def test_invalid_model_selection_does_not_change_scene_or_scope(tmp_path, selection):
+    bench = Workbench(tmp_path)
+    before = bench.path.read_bytes(), bench.selection_path.read_bytes()
+    with pytest.raises(ValueError):
+        bench.select({"selection": selection})
+    assert (bench.path.read_bytes(), bench.selection_path.read_bytes()) == before

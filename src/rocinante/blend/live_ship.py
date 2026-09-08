@@ -25,6 +25,7 @@ from build_ship import (
     frame_camera,
     frame_viewports,
 )
+from landmarks import build_landmark
 from torpedoes import build_loaded_torpedoes
 
 SPEC_PATH = Path(sys.argv[sys.argv.index("--") + 1])
@@ -54,32 +55,65 @@ def acknowledge(command, status, message):
     temp.replace(path)
 
 
+def selection_objects(selection):
+    kind, ident = selection["kind"], selection.get("id")
+    if kind == "landmark":
+        return build_landmark(ident)
+    objects = list(bpy.context.scene.objects)
+    if kind == "torpedo":
+        return [o for o in objects if o.get("torpedo_id") == ident]
+    if kind == "deck":
+        return [o for o in objects if o.get("deck_index") == ident]
+    if kind in {"crew", "part"}:
+        return [o for o in objects if o.get("rocinante_part") == ident]
+    return [o for o in objects if o.get("rocinante_part") and not o.get("torpedo_id")]
+
+
 def focus(command):
     global animation
-    ident = command.get("torpedo_id")
-    objects = [o for o in bpy.context.scene.objects if o.get("torpedo_id") == ident] if ident else []
-    if ident and not objects:
-        acknowledge(command, "error", "Selected torpedo is not present in the Blender scene")
+    # Stop an older transition even when the replacement cannot be resolved.
+    animation = None
+    selection = command.get("selection") or (
+        {"kind": "torpedo", "id": command["torpedo_id"]} if command.get("torpedo_id") else {"kind": "ship"})
+    objects = selection_objects(selection)
+    if not objects:
+        acknowledge(command, "error", "Selected model is not present in the Blender scene")
         return
-    for obj in bpy.context.selected_objects:
+    kind = selection["kind"]
+    deck = objects[0].get("deck_index") if kind == "crew" else None
+    for obj in list(bpy.context.selected_objects):
         obj.select_set(False)
-    if objects:
-        for obj in objects:
-            obj.select_set(True)
-        bpy.context.view_layer.objects.active = objects[0]
-        points = [obj.matrix_world @ Vector(c) for obj in objects for c in obj.bound_box]
-        lo = Vector(tuple(min(p[i] for p in points) for i in range(3)))
-        hi = Vector(tuple(max(p[i] for p in points) for i in range(3)))
-        center, distance = (lo + hi)/2, (hi-lo).length*1.8
-    else:
-        center, distance = Vector(ship_center), ship_span*1.65
+    for obj in bpy.context.scene.objects:
+        if not (obj.get("rocinante_part") or obj.get("landmark_id")):
+            continue
+        # Reset presentation transforms before applying the next selection.
+        if "rocinante_base_location" not in obj:
+            obj["rocinante_base_location"] = list(obj.location)
+        obj.location = Vector(obj["rocinante_base_location"])
+        if kind == "ship" and selection.get("expanded"):
+            offset = obj.get("assembly_offset")
+            if offset:
+                obj.location += Vector((offset[0], -offset[2], offset[1]))
+        visible = (not obj.get("landmark_id") if kind == "ship" else
+                   obj in objects or (deck is not None and obj.get("deck_index") == deck))
+        obj.hide_set(not visible)
+    bpy.context.view_layer.update()
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    points = [obj.matrix_world @ Vector(c) for obj in objects if obj.type == "MESH" for c in obj.bound_box]
+    lo = Vector(tuple(min(p[i] for p in points) for i in range(3)))
+    hi = Vector(tuple(max(p[i] for p in points) for i in range(3)))
+    center, distance = (lo + hi)/2, (hi-lo).length*1.8
     views = []
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == "VIEW_3D":
                 space = area.spaces.active
                 space.clip_start = .001
+                space.clip_end = max(30000, distance*4)
                 region = space.region_3d
+                region.view_perspective = "PERSP"
                 direction = Vector((.7, 1 if center.y >= 0 else -1, .5)).to_track_quat("Z", "Y")
                 views.append((area, region, region.view_location.copy(), region.view_distance, region.view_rotation.copy(), direction))
     animation = (time.monotonic(), center, max(.12, distance), views, command)
@@ -97,7 +131,7 @@ def animate():
             region.view_rotation = rotation.slerp(direction, eased)
             area.tag_redraw()
         if t == 1:
-            acknowledge(command, "synced", "Focused selected torpedo" if command.get("torpedo_id") else "Showing the Roci")
+            acknowledge(command, "synced", "Focused selected model")
             animation = None
     return .02
 

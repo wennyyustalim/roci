@@ -104,13 +104,13 @@ function syncStatus(snapshot) {
   setOptionalText("selection-sync",Object.entries(snapshot.integrations || {}).map(([app,result])=>
     `${app==="blender" ? "Blender" : "OpenRocket"}: ${result.status==="synced" ? "in sync" : result.status==="error" ? result.message : "focusing…"}`).join(" · "));
 }
-function selectTorpedo(id) {
+function selectModel(selection) {
+  const id=selection.kind==="torpedo" ? selection.id : null;
   if(launching) return;
-  if(selectedTorpedo===id) return;
   selectedTorpedo=id; const version=++selectionVersion;
   renderScope(); el("propose").disabled=true; setOptionalText("selection-sync","Syncing selection…");
   selectionSync=selectionSync.catch(()=>{}).then(async()=>{
-    const next=await api("select",{torpedo_id:id});
+    const next=await api("select",{selection});
     if(version!==selectionVersion) return;
     state=next; render(); syncStatus(next);
     clearTimeout(syncTimer);
@@ -159,7 +159,8 @@ el("launch").onclick=async()=>{
     el("launch-caption").textContent=error.message;el("cancel-launch").textContent="Close";
   }
 };
-el("cancel-launch").onclick=cancelLaunch;
+el("cancel-launch").onclick=()=>{cancelLaunch();if(selectedTorpedo) scene?.selectTorpedo(selectedTorpedo,false);};
+addEventListener("keydown",event=>{if(event.key==="Escape" && launching) {cancelLaunch();scene?.reset();}});
 el("canvas").addEventListener("launchchange",({detail:d})=>{
   if(d.phase==="idle") {launchBusy(false);el("launch-hud").hidden=true;return;}
   const phases={pullback:"Pulling back to the Roci",assembling:"Assembling the ship",tracking:"Acquiring moving target",flight:"Torpedo away",impact:"Target destroyed",complete:"Training run complete"};
@@ -178,7 +179,7 @@ el("canvas").addEventListener("launchchange",({detail:d})=>{
   if(d.phase==="complete") {launchBusy(false);el("cancel-launch").textContent="Back to workshop";}
 });
 
-el("canvas").addEventListener("torpedoselect",event=>selectTorpedo(event.detail.torpedo_id));
+el("canvas").addEventListener("modelselect",event=>selectModel(event.detail));
 el("clear-selection")?.addEventListener("click",()=>scene?.reset());
 
 el("proposal").onsubmit=e=>{e.preventDefault();propose();};
@@ -219,5 +220,5 @@ try {
   el("status").textContent="Explore the ship";
   render();
 } catch(error) {el("status").textContent=`Unable to load the ship: ${error.message}`;el("propose").disabled=true;}
-try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));await renderScene();if(selectedTorpedo) scene.selectTorpedo(selectedTorpedo,false);renderScope();}
+try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));await renderScene();scene.restoreSelection(state.selected_model || (selectedTorpedo ? {kind:"torpedo",id:selectedTorpedo} : null));renderScope();}
 catch(error) {el("scene-error").hidden=false;el("scene-error").textContent="3D view unavailable. Check WebGL and access to cdn.jsdelivr.net. The panel still works.";console.error(error);}
