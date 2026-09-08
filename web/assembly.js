@@ -1,0 +1,122 @@
+import * as THREE from "three";
+
+// Presentation transforms only: the immutable mesh/spec never changes.
+export function createAssembly(models, camera, controls, container) {
+  let pieces=[], labels=[], decks=[], amount=0, target=0, startAmount=0, started=0;
+  let focusIndex=null, cameraMove=null, suspended=false;
+  const layer=document.createElement("div"); layer.className="part-labels"; container.append(layer);
+  const reduced=matchMedia("(prefers-reduced-motion: reduce)");
+  const smooth=t=>t*t*t*(t*(t*6-15)+10);
+  const emit=()=>container.dispatchEvent(new CustomEvent("assemblychange",{detail:{
+    expanded:target===1, moving:amount!==target, focus:focusIndex, suspended,
+    decks:decks.map(d=>({index:d.index,name:d.name,crew:d.crew})),
+  }}));
+  function moveCamera(center,distance,direction=new THREE.Vector3(.8,.52,-1)) {
+    cameraMove={time:performance.now(),from:camera.position.clone(),to:center.clone().addScaledVector(direction.normalize(),distance),
+      lookFrom:controls.target.clone(),lookTo:center.clone()};
+  }
+  controls.addEventListener("start",()=>{cameraMove=null;});
+  function boundsAtEnd() {
+    const box=new THREE.Box3();
+    for(const p of pieces) {
+      if(p.ghost) continue;
+      p.object.position.copy(p.base).addScaledVector(p.offset,target);
+      box.union(new THREE.Box3().setFromObject(p.object));
+      p.object.position.copy(p.base).addScaledVector(p.offset,amount);
+    }
+    return box;
+  }
+  function frame() {
+    suspended=false;
+    focusIndex=null; applyVisibility();
+    const box=boundsAtEnd(); if(box.isEmpty()) return;
+    const sphere=box.getBoundingSphere(new THREE.Sphere());
+    const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
+    moveCamera(sphere.center,sphere.radius/Math.sin(fov/2)*1.10);
+    emit();
+  }
+  function applyVisibility() {
+    for(const root of models.children) if(root.userData.assemblyGhost) root.visible=focusIndex===null && amount<.02;
+    for(const p of pieces) p.object.visible=focusIndex===null ? (!p.ghost || amount<.02) : !p.ghost && p.index===focusIndex;
+  }
+  function bind() {
+    layer.replaceChildren(); pieces=[]; labels=[]; decks=[];
+    models.updateMatrixWorld(true);
+    for(const root of models.children) {
+      const ghost=!!root.userData.assemblyGhost;
+      root.traverse(object=> {
+        const data=object.userData, name=data.rocinante_part || object.name;
+        const semantic=data.assembly_kind || (/^(drive_|tube_|pdc_)/.test(name) && data.rocinante_part);
+        if(!semantic) return;
+        // A glTF semantic node may own multiple material meshes; move it once.
+        if(object.parent?.userData.assembly_kind || object.parent?.userData.rocinante_part===name) return;
+        const box=new THREE.Box3().setFromObject(object), center=box.getCenter(new THREE.Vector3());
+        const offset=data.assembly_offset ? new THREE.Vector3(...data.assembly_offset) :
+          name.startsWith("drive_") ? new THREE.Vector3(0,name==="drive_bell" ? -13 : -8,0) :
+          new THREE.Vector3(Math.sign(center.x || 1)*5,0,Math.sign(center.z || 1)*11);
+        pieces.push({object,base:object.position.clone(),offset,ghost,index:data.deck_index,kind:data.assembly_kind});
+        if(ghost) return;
+        if(data.assembly_kind==="deck") {
+          decks.push({object,index:data.deck_index,name:data.deck_label,crew:[]});
+          const button=document.createElement("button"); button.className="part-label";
+          button.textContent=`${String(data.deck_index+1).padStart(2,"0")}  ${data.deck_label}`;
+          button.onclick=()=>focus(data.deck_index); layer.append(button);
+          const local=object.worldToLocal(center.clone()); local.x=box.getSize(new THREE.Vector3()).x*.52;
+          labels.push({object,element:button,local,index:data.deck_index,crew:false});
+        } else if(data.assembly_kind==="crew") {
+          const element=document.createElement("span"); element.className="crew-label"; element.textContent=data.crew_name;
+          layer.append(element);
+          const local=object.worldToLocal(new THREE.Vector3(center.x,box.max.y+.32,center.z));
+          labels.push({object,element,local,index:data.deck_index,crew:true});
+        }
+      });
+    }
+    for(const d of decks) d.crew=labels.filter(l=>l.crew && l.index===d.index).map(l=>l.element.textContent);
+    decks.sort((a,b)=>a.index-b.index);
+    for(const p of pieces) p.object.position.copy(p.base).addScaledVector(p.offset,amount);
+    applyVisibility(); emit();
+  }
+  function expand(on) {
+    focusIndex=null; startAmount=amount; target=on ? 1 : 0; started=performance.now();
+    if(reduced.matches) amount=target;
+    applyVisibility(); frame(); emit();
+  }
+  function focus(index) {
+    suspended=false;
+    const deck=decks.find(d=>d.index===index); if(!deck) return;
+    startAmount=amount; target=1; started=performance.now(); amount=1;
+    for(const p of pieces) p.object.position.copy(p.base).add(p.offset);
+    focusIndex=index; applyVisibility();
+    const box=new THREE.Box3().setFromObject(deck.object);
+    for(const p of pieces) if(p.index===index) box.union(new THREE.Box3().setFromObject(p.object));
+    const sphere=box.getBoundingSphere(new THREE.Sphere());
+    const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
+    moveCamera(sphere.center,sphere.radius/Math.sin(fov/2)*1.18,new THREE.Vector3(.48,.8,-1)); emit();
+  }
+  function tick(now) {
+    const moving=amount!==target;
+    if(moving) {
+      const t=THREE.MathUtils.clamp((now-started)/1800,0,1);
+      amount=startAmount+(target-startAmount)*smooth(t);
+      if(t===1) amount=target;
+      for(const p of pieces) p.object.position.copy(p.base).addScaledVector(p.offset,amount);
+      applyVisibility(); if(amount===target) emit();
+    }
+    if(cameraMove) {
+      const t=reduced.matches ? 1 : THREE.MathUtils.clamp((now-cameraMove.time)/1350,0,1), eased=smooth(t);
+      camera.position.lerpVectors(cameraMove.from,cameraMove.to,eased);
+      controls.target.lerpVectors(cameraMove.lookFrom,cameraMove.lookTo,eased);
+      if(t===1) cameraMove=null;
+    }
+    models.updateMatrixWorld(true); camera.updateMatrixWorld();
+    const width=container.clientWidth,height=container.clientHeight;
+    for(const l of labels) {
+      const point=l.object.localToWorld(l.local.clone()).project(camera);
+      const visible=!suspended && amount>.94 && point.z<1 && point.z>-1 && Math.abs(point.x)<.94 && Math.abs(point.y)<.94 &&
+        (l.crew ? focusIndex===l.index : focusIndex===null);
+      l.element.hidden=!visible;
+      if(visible) {l.element.style.left=`${(point.x*.5+.5)*width}px`;l.element.style.top=`${(-point.y*.5+.5)*height}px`;}
+    }
+  }
+  return {bind,expand,focus,frame,tick,suspend(){cameraMove=null;suspended=true;focusIndex=null;applyVisibility();emit();},get expanded(){return target===1;},get ready(){return decks.length>0;}};
+}

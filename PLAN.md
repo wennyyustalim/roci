@@ -16,6 +16,92 @@ and performance. Develop that alongside P1.2 ship fidelity; then integrate and
 rehearse before expanding integrations. Keep the schema and part IDs stable so
 those tracks can proceed independently.
 
+## Handoff — 8 September, torpedo-bay demo (P0)
+
+The demo pivoted this afternoon: no review step, one command, four windows,
+and "arm the Roci with torpedoes" as the only story. This is the state of that
+work and what the next person picks up. Verified items were exercised on a
+spare port with the fixture presets plus one live Astra call.
+
+### Done and verified
+
+- [x] `roci demo` (via `bin/roci`, loads `.env`) serves the torpedo bay UI and
+  tiles the screen: web UI top-left, OpenRocket top-right, Blender
+  bottom-left, Kord bottom-right. `--no-layout`, `--no-chrome`,
+  `--no-blender`, `--no-openrocket`, `--no-share` opt out; `--fixture` for
+  presets; `--kord` overrides `KORD_API_BASE` from `.env`, which is the
+  local Kord and is now the default the demo shares to.
+- [x] The Kord window opens on the local comparison UI (`<kord>/diff`) and
+  every revision's `/d/<token>` link replaces it, so the second browser
+  follows the ship as Astra rearms it. Startup probes the instance and says
+  plainly when nothing is answering there.
+- [x] OpenRocket lands in its quadrant. It could never be placed through
+  System Events — Swing publishes no windows to the accessibility API, and
+  the install4j process is called `JavaApplicationStub`, so the old
+  `place_window` call matched nothing. `demo.prepare_openrocket` quits it and
+  writes the quadrant into the Java preferences node it restores from.
+- [x] `ShipSpec.torpedo` (a `RocketSpec`) and `weapons.tube_station` (tube
+  placement along the hull). Astra returns the whole ship; the prompt in
+  `agent/prompts.py` explains both levers. Live call returned only the two
+  torpedo edits asked for.
+- [x] Every ask is accepted as the ship (`auto_accept`). Blender rebuilds from
+  `<out>/blender-current.json`; OpenRocket reopens `<out>/torpedo/vNNNN.ork`
+  only when the torpedo changed; Kord gets the ship GLB pair, or the `.ork`
+  pair when only the torpedo changed, in a background thread. The Kord
+  Chrome window navigates to the new link on its own.
+- [x] `.ork` writer matches OpenRocket's real layout; files open cleanly in
+  24.12 with the motor resolved and stability computed.
+- [x] The web viewer always shows real Blender geometry (baseline exported at
+  startup, every revision on propose; under a second per hull).
+- [x] Tests: 92 passed, 1 skipped. README and DEMO.md describe the command.
+
+### Open — in priority order
+
+- [ ] **Start the local Kord before the demo.** `pnpm dev` in the Kord
+  checkout, with its Supabase and sidecar containers up. `roci demo` now
+  shares to `KORD_API_BASE` (`http://localhost:3000`) and prints
+  `NOT ANSWERING` when nothing is there, but it does not start it.
+- [ ] **Rehearse the live asks.** The sample asks are untested against the
+  model except the fins one, which was verified end to end on 8 September:
+  29.4 s, four fin edits and nothing else, `.ork` pair shared to the local
+  Kord. Watch for Astra editing fields it was not asked to (the diff list in
+  the UI shows exactly what moved). Each ask is ~20-30 s of model time.
+- [ ] **3D detail is another agent's job:** Ceres, Tycho and the Ring are
+  placeholders in `neighbourhood()` in `web/primitives.js`; the galaxy is a
+  procedural canvas texture in `galaxyTexture()`. The ship is whatever
+  Blender exports. Anything that changes part names in `build_ship.py` must
+  keep the `tube_*`, `pdc_*`, `drive_*`, `hull_body`, `deck_*` tags.
+- [ ] **`build_ship.py` merge:** one line in `build_tubes` now reads
+  `weapons.tube_station`. That file was being edited concurrently for
+  realism; check the line survived.
+- [ ] **"Gradual" update is the propagation tracker**, not an animation.
+  Blender swaps the mesh in about a second; if a morph is wanted, it goes in
+  `live_ship.py` (interpolate specs over a few timer ticks).
+- [ ] **OpenRocket windows still stack within a run.** `roci demo` now quits
+  OpenRocket at startup, so each run begins with one window in its quadrant,
+  but every revision after that opens another on top of the last and nothing
+  closes them. Do not script clicks inside OpenRocket to close them: an
+  accessibility click hit a content button and wedged the app for twenty
+  minutes. Quitting cleanly (`osascript -e 'quit app "OpenRocket"'`) and
+  reopening recovers it. Note that OpenRocket keeps the geometry it was last
+  given, so a hand-dragged window changes where the next run starts.
+- [ ] **Window placement needs Automation access** for the terminal running
+  `roci demo` (System Settings → Privacy & Security → Automation: Google
+  Chrome and System Events). Without it the apps still open, just not tiled.
+  Accessibility is no longer involved — nothing is moved through the
+  accessibility tree any more.
+- [ ] **Kord link expiry:** shares are 7-day links. The Kord window reopens the
+  last saved link on restart; check it before going on stage. A link minted
+  against the local Kord only resolves while that server is running, so a
+  stage machine without it needs `--kord https://work.withkord.com` and a
+  fresh share.
+- [ ] **Stale prose in DEMO.md:** the "verified live run" section still refers
+  to `out/demo-stage-v2`, which does not exist in this checkout, and to the
+  approve/reject flow that the demo no longer has.
+- [ ] **Not modeled:** tube placement is visual only (no mass or structure
+  effect); torpedo flight is not simulated (OpenRocket sim backend is still
+  a stub); Kord review sessions are not used.
+
 ## Finish line — recorded and live demo
 
 These are the final acceptance checks, performed after the P1 work below.

@@ -257,8 +257,9 @@ def demo(
         help="Model proposals or fixture presets. Default: live when OPENAI_API_KEY is set.",
     ),
     kord: str = typer.Option(
-        PUBLIC_KORD, "--kord",
-        help="Kord instance for shared comparisons. Overrides KORD_API_BASE from .env.",
+        None, "--kord",
+        help="Kord instance for shared comparisons. Defaults to KORD_API_BASE from .env, "
+             f"then {PUBLIC_KORD}.",
     ),
     chrome: bool = typer.Option(True, "--chrome/--no-chrome", help="Open the workbench in Chrome."),
     blender: bool = typer.Option(True, "--blender/--no-blender", help="Show the live Roci in Blender."),
@@ -284,6 +285,7 @@ def demo(
         chrome_set_url,
         open_browser,
         openrocket_available,
+        prepare_openrocket,
         quadrants,
         screen_size,
     )
@@ -297,6 +299,10 @@ def demo(
             "Live mode needs OPENAI_API_KEY. Put it in .env and launch with bin/roci demo, "
             "or pass --fixture."
         )
+    # The demo compares against whichever Kord `.env` points at -- the local one
+    # during development -- so the comparison window is the same instance the
+    # revisions are uploaded to. --kord overrides it either way.
+    kord = (kord or os.getenv("KORD_API_BASE") or PUBLIC_KORD).rstrip("/")
     os.environ["KORD_API_BASE"] = kord
     openrocket = openrocket and openrocket_available()
 
@@ -305,13 +311,17 @@ def demo(
     kord_window: list[int | None] = [None]
 
     def show_in_kord(url: str) -> None:
-        kord_window[0] = kord_window[0] if kord_window[0] is not None else None
         if chrome:
             chrome_set_url(kord_window[0], url)
 
+    # Seeding OpenRocket's saved window geometry only takes at launch, so this
+    # has to run before the workbench opens the baseline torpedo.
+    if openrocket and layout:
+        prepare_openrocket(quads["openrocket"])
+
     bench = Workbench(
         out, live=live, show_blender=blender, show_openrocket=openrocket,
-        auto_export=True, auto_accept=True, auto_share=share,
+        auto_export=True, auto_accept=True, auto_share=share, torpedo_only=True,
         on_share_url=show_in_kord,
         blender_geometry=blender_geometry(quads["blender"], height) if layout else None,
         openrocket_bounds=quads.get("openrocket"),
@@ -326,23 +336,41 @@ def demo(
     url = f"http://127.0.0.1:{port}/"
     last_share = next((it["handoff"]["share_url"] for it in reversed(bench.state["iterations"])
                        if it.get("handoff", {}).get("share_url")), None)
+    # /diff is Kord's comparison UI with nothing dropped on it yet. Opening the
+    # second window there rather than on Kord's home page means the demo starts
+    # on the surface each revision's link replaces, and reaches it before the
+    # first share does -- on a dev server, this also compiles the route early.
+    comparison = f"{kord}/diff"
+    probe = KordClient(base_url=kord)
+    try:
+        kord_up = probe.reachable()
+    finally:
+        probe.close()
     table = Table("Window", "Shows", "Detail")
     table.add_row("Workbench", url, f"{'live ' + model_name() if live else 'fixture presets'}; "
                   f"state in {out / 'workbench.json'}")
     if chrome:
         if layout:
             chrome_open_window(url, quads["ui"])
-            kord_window[0] = chrome_open_window(last_share or kord, quads["kord"])
+            kord_window[0] = chrome_open_window(last_share or comparison, quads["kord"])
         else:
             open_browser(url)
         table.add_row("Chrome", "torpedo bay UI", url)
-        table.add_row("Chrome", "Kord comparison", last_share or f"{kord} (first share lands here)")
+        table.add_row("Chrome", "Kord comparison",
+                      last_share or f"{comparison} (each revision's link replaces it)")
     if blender:
         table.add_row("Blender", "the ship, live", f"watching {out / 'blender-current.json'}")
     table.add_row("OpenRocket", "the torpedo, live" if openrocket else "NOT INSTALLED",
                   f"{bench.torpedo_path}; reopens when a refit changes the torpedo")
-    table.add_row("Kord", "auto-shared" if share else "manual share", kord)
+    table.add_row("Kord", "auto-shared" if share else "manual share",
+                  kord if kord_up else f"{kord} [red]NOT ANSWERING[/]")
     console.print(table)
+    if not kord_up:
+        console.print(f"[yellow]No Kord at {kord}.[/] Comparisons will fail to upload and the "
+                      "Kord window will stay empty.")
+        if kord != PUBLIC_KORD:
+            console.print("Start it (`pnpm dev` in the Kord checkout), or pass "
+                          f"[bold]--kord {PUBLIC_KORD}[/] to use the public one.")
     console.print("[dim]Ctrl-C stops the server; the app windows stay open.[/]")
     try:
         server.serve_forever()

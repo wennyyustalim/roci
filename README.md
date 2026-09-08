@@ -96,9 +96,11 @@ For free-text model proposals, set `OPENAI_API_KEY` and optionally
 `ROCINANTE_MODEL` in `.env`, then launch with:
 
 ```bash
-KORD_API_BASE=https://work.withkord.com uv run --env-file .env rocinante demo \
-  --live --port 3001 --out out/demo-live
+uv run --env-file .env rocinante demo --live --port 3001 --out out/demo-live
 ```
+
+Comparisons go to the Kord that `KORD_API_BASE` names; add
+`--kord https://work.withkord.com` to use the public one instead.
 
 The explicit `--env-file` loads local configuration; ordinary launches do not.
 Live mode fails early if the key is missing. Real `gpt-6-astra` structured proposals have been verified end to end with

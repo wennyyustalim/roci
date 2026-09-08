@@ -86,6 +86,18 @@ class KordClient:
         """Anonymous diff shares need nothing but a reachable Kord."""
         return bool(self.base_url)
 
+    def reachable(self, timeout: float = 20.0) -> bool:
+        """Is this Kord answering? Ask for the comparison UI, which also warms it.
+
+        Worth checking before the demo opens a window onto it: a local Kord is
+        frequently just not started yet, and the generous timeout is for a dev
+        server compiling the route on its first request.
+        """
+        try:
+            return not self.http.get("/diff", timeout=timeout).is_error
+        except httpx.HTTPError:
+            return False
+
     @property
     def enabled(self) -> bool:
         """Authenticated writes need an allowlisted account and a folder."""

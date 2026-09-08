@@ -13,7 +13,8 @@ import bpy
 
 PART = "rocinante_part"
 FACETS = 8
-MATERIAL_KEYS = ("hull", "panel", "dark", "drive", "drive_hot", "edge", "paint", "white", "light")
+MATERIAL_KEYS = ("hull", "panel", "dark", "drive", "drive_hot", "edge", "paint", "white", "light",
+                 "screen", "amber", "fabric", "skin", "skin_dark", "hair", "plant")
 
 
 def clear_scene():
@@ -419,7 +420,28 @@ def build_hull(spec):
                 _tube(builder, nozzle, _add(nozzle, _scale(normal, 0.32*detail)),
                       0.22*detail, 0.15*detail, "edge", facets=12)
     _hull_lettering(builder,hull)
-    return [tag(mesh_from("hull_body", builder), "hull_body")]
+    # Split polygons exactly at the centre plane. Both shells keep the review
+    # part ID, but have independent assembly transforms in the browser.
+    halves = []
+    for side, label in ((-1, "port"), (1, "starboard")):
+        half = MeshBuilder()
+        for face, material in zip(builder.faces, builder.materials):
+            points = [builder.verts[i] for i in face]
+            clipped = []
+            for a, b in zip(points, points[1:] + points[:1]):
+                inside_a, inside_b = side * a[0] >= 0, side * b[0] >= 0
+                if inside_a:
+                    clipped.append(a)
+                if inside_a != inside_b:
+                    clipped.append(_lerp(a, b, -a[0] / (b[0] - a[0])))
+            if len(clipped) >= 3:
+                half.face([half.vertex(v) for v in clipped], MATERIAL_KEYS[material])
+        obj = tag(mesh_from(f"hull_{label}", half), "hull_body")
+        obj.name = f"hull_{label}"
+        obj["assembly_offset"] = [side * hull["beam_m"] * 0.85, 0, 0]
+        obj["assembly_kind"] = "hull"
+        halves.append(obj)
+    return halves
 
 
 def build_drive(spec):
@@ -551,18 +573,213 @@ def build_tubes(spec):
     return out
 
 
-def build_decks(spec):
-    """Deck plates remain 30% clear of the local hull; they cannot protrude."""
-    hull, out = spec["hull"], []
-    stack, z, available = sum(deck["height_m"] for deck in spec["decks"]), hull["length_m"] * 0.20, hull["length_m"] * 0.48
+def _ellipsoid(builder, center, radii, material, rings=6, segments=12):
+    rows = []
+    for j in range(rings + 1):
+        phi = math.pi * j / rings
+        rows.append([builder.vertex(_add(center, (
+            radii[0] * math.sin(phi) * math.cos(math.tau * i / segments),
+            radii[1] * math.sin(phi) * math.sin(math.tau * i / segments),
+            radii[2] * math.cos(phi)))) for i in range(segments)])
+    for a, b in pairwise(rows):
+        for i in range(segments):
+            k = (i + 1) % segments
+            builder.face((a[i], b[i], b[k], a[k]), material)
+
+
+def _screen(builder, x, y, z, width=1.4, height=0.8):
+    # Vertical readout on a console facing the open/front (+Y) side.
+    _box(builder, (x, y, z), (width + 0.12, 0.14, height + 0.12), "dark")
+    _box(builder, (x, y + 0.078, z), (width, 0.018, height), "screen")
+    for row in range(6):
+        _box(builder, (x - width * .17, y + .092, z + height * (.35 - row * .13)),
+             (width * (.48 if row % 3 else .65), .008, .015), "light")
+    for col in range(4):
+        _box(builder, (x + width * (.2 + col * .055), y + .094, z - height * .1),
+             (.035, .01, height * (.25 + col * .1)), "amber")
+
+
+def _chair(builder, x, y, z):
+    _cylinder(builder, (x, y, z), (x, y, z + .55), .18, "edge")
+    _box(builder, (x, y, z + .58), (.78, .8, .18), "fabric")
+    _box(builder, (x, y - .34, z + 1.10), (.8, .20, 1.1), "fabric")
+    _box(builder, (x, y - .27, z + 1.72), (.5, .22, .3), "fabric")
+    for side in (-1, 1):
+        _box(builder, (x + side * .48, y, z + .92), (.14, .88, .14), "panel")
+        _box(builder, (x + side * .21, y - .22, z + 1.15), (.07, .055, .83), "amber")
+    _box(builder, (x, y + .62, z + .2), (.85, .36, .10), "edge")
+
+
+def _person(builder, x, y, z, name, seated=False):
+    """Original, static crew miniatures with boots, suits, harnesses and hair."""
+    skin = "skin_dark" if name in ("Naomi", "Alex") else "skin"
+    suit = "fabric" if name != "Amos" else "panel"
+    hip = z + (.90 if not seated else .74)
+    shoulder = hip + .52
+    _ellipsoid(builder, (x, y, hip + .28), (.29 if name != "Amos" else .34, .18, .37), suit)
+    _box(builder, (x, y, hip), (.46, .32, .20), suit)
+    _cylinder(builder, (x, y, shoulder), (x, y, shoulder + .17), .09, skin)
+    head = shoulder + .32
+    _ellipsoid(builder, (x, y, head), (.17, .155, .22), skin)
+    _ellipsoid(builder, (x, y - .025, head + .13), (.18, .15, .12 if name != "Naomi" else .20), "hair")
+    if name in ("Holden", "Amos"):
+        _ellipsoid(builder, (x, y + .09, head - .1), (.145, .075, .095), "hair")
+    if name == "Naomi":
+        for i in range(5):
+            _ellipsoid(builder, (x + .1, y - .11, head + .04 + i * .055), (.13, .13, .13), "hair")
+    for side in (-1, 1):
+        legx = x + side * .14
+        knee = (legx, y + (.4 if seated else .025), z + .44)
+        ankle = (legx, knee[1], z + .13)
+        _cylinder(builder, (legx, y, hip), knee, .115, suit)
+        _cylinder(builder, knee, ankle, .095, suit)
+        _box(builder, (legx, ankle[1] + .10, z + .10), (.23, .4, .20), "dark")
+        elbow = (x + side * .36, y + .10, shoulder - .28)
+        hand = (x + side * .30, y + (.48 if seated else .3), shoulder - .42)
+        _cylinder(builder, (x + side * .24, y, shoulder - .04), elbow, .10, suit)
+        _cylinder(builder, elbow, hand, .085, skin if name == "Amos" else suit)
+        _ellipsoid(builder, hand, (.08, .08, .10), skin)
+        _box(builder, (x + side * .16, y + .171, hip + .30), (.055, .035, .45), "amber")
+    _box(builder, (x + .1, y + .2, hip + .42), (.09, .02, .065), "light")
+
+
+def deck_layout(spec):
+    """Bow-to-stern rooms, with enough headroom and clearance at BOTH ends."""
+    hull = spec["hull"]
+    total = sum(d["height_m"] for d in spec["decks"]) or 1
+    ceiling = hull["length_m"] * .84
+    result = []
     for index, deck in enumerate(spec["decks"]):
-        rx, ry = hull_radius_at(hull, z)
-        builder = MeshBuilder()
-        add_faceted_shell(builder, [(z - 0.055, rx * 0.70, ry * 0.70), (z + 0.055, rx * 0.70, ry * 0.70)],
-                          "panel" if deck["kind"] != "galley" else "hull")
+        height = deck["height_m"] * hull["length_m"] * .62 / total
+        floor = ceiling - height
+        r0, s0 = hull_radius_at(hull, floor)
+        r1, s1 = hull_radius_at(hull, ceiling)
+        result.append((index, deck, floor, height, min(r0, r1) * .79, min(s0, s1) * .79))
+        ceiling = floor
+    return result
+
+
+def build_decks(spec):
+    """Furnished room modules; furniture/crew travel with their deck on reveal.
+
+    A compact interpretation of the TV sets, not a canonical floor plan.
+    See docs/INTERIOR-REFERENCES.md for the production research.
+    """
+    out = []
+    for index, deck, z, height, rx, ry in deck_layout(spec):
+        b = MeshBuilder()
         name = f"deck_{index + 1:02d}_{deck['kind']}"
-        out.append(tag(mesh_from(name, builder), name))
-        z += deck["height_m"] * available / stack if stack else available
+        add_faceted_shell(b, [(z - .16, rx, ry), (z, rx, ry)], "panel")
+        # Floor tiles, luminous edge strips and rear ribs leave a cutaway side.
+        for x in range(-int(rx * .7), int(rx * .7) + 1):
+            _box(b, (x, 0, z + .012), (.025, ry * 1.55, .015), "dark")
+        for y in range(-int(ry * .7), int(ry * .7) + 1):
+            _box(b, (0, y, z + .014), (rx * 1.55, .025, .015), "dark")
+        for side in (-1, 1):
+            _box(b, (side * rx * .76, 0, z + .025), (.045, ry * .9, .04), "screen")
+        back = -ry * .76
+        _box(b, (0, back, z + 1.12), (rx * 1.38, .15, 2.24), "hull")
+        for x in (-rx * .64, 0, rx * .64):
+            _box(b, (x, back + .08, z + 1.2), (.12, .18, 2.4), "edge")
+        _box(b, (0, back + .1, z + 2.28), (rx * 1.26, .12, .06), "light")
+        # Interdeck ladder / hatch and a short safety railing.
+        lx = -rx * .65
+        for dx in (-.28, .28):
+            _cylinder(b, (lx + dx, -.3, z + .1), (lx + dx, -.3, z + height - .1), .045, "edge")
+        for i in range(max(1, int(height / .32))):
+            _cylinder(b, (lx - .28, -.3, z + .16 + i * .32), (lx + .28, -.3, z + .16 + i * .32), .035, "amber")
+        for x in (-rx * .55, rx * .55):
+            _cylinder(b, (x, ry * .60, z), (x, ry * .60, z + .88), .045, "edge")
+        _cylinder(b, (-rx * .55, ry * .60, z + .88), (rx * .55, ry * .60, z + .88), .045, "edge")
+        kind = deck["kind"]
+        crew = []
+        if kind == "ops":
+            _chair(b, 0, -.3, z)
+            _screen(b, 0, back + .22, z + 1.38, min(2.4, rx), 1.0)
+            for side in (-1, 1):
+                _box(b, (side * rx * .45, -.25, z + .7), (.75, 1.7, 1.3), "hull")
+                _screen(b, side * rx * .45, .62, z + 1.4, .7, .65)
+            if index == 0:
+                crew = [("Alex", 0, -.22, True)]
+            else:
+                _box(b, (0, 1.05, z + .5), (.45, .45, 1), "edge")
+                _box(b, (0, 1.05, z + 1.03), (2.8, 1.4, .12), "dark")
+                _box(b, (0, 1.05, z + 1.10), (2.6, 1.2, .015), "screen")
+                for i in range(9):
+                    _box(b, (-1.1 + i * .27, 1.05, z + 1.112), (.015, 1.05, .012), "light")
+                crew = [("Holden", 1.8, .75, False)]
+        elif kind == "crew":
+            for side in (-1, 1):
+                for level in (0, 1):
+                    x, zz = side * rx * .45, z + .48 + level * 1.15
+                    _box(b, (x, -.2, zz), (1.35, 2.25, .15), "edge")
+                    _box(b, (x, -.2, zz + .14), (1.22, 2.12, .18), "fabric")
+                    _box(b, (x, -.85, zz + .26), (.9, .45, .16), "white")
+                    _box(b, (x, .22, zz + .25), (1.23, 1.1, .08), "paint")
+            _screen(b, 0, back + .2, z + 1.35, 1, .8)
+        elif kind == "galley":
+            _box(b, (0, back + .6, z + .52), (rx * 1.22, .9, 1.04), "panel")
+            _box(b, (0, back + .6, z + 1.07), (rx * 1.25, 1, .09), "edge")
+            for x in (-rx * .4, 0, rx * .4):
+                for j in range(3):
+                    _box(b, (x, back + 1.06, z + .2 + j * .29), (rx * .35, .025, .025), "edge")
+            _tube(b, (0, back + .12, z + 1.8), (0, back + .3, z + 1.8), .57, .49, "light", recessed=False)
+            for i in range(12):
+                a = i * 2.4
+                _ellipsoid(b, (.36 * math.cos(a), back + .23, z + 1.8 + .36 * math.sin(a)), (.12, .08, .09), "plant")
+            _box(b, (rx * .35, back + .6, z + 1.4), (.48, .55, .6), "dark")
+            _box(b, (rx * .35, back + .89, z + 1.45), (.32, .04, .12), "light")
+            _cylinder(b, (0, .6, z), (0, .6, z + .86), .2, "edge")
+            _cylinder(b, (0, .6, z + .86), (0, .6, z + .97), 1.35, "panel", facets=6)
+            for i in range(4):
+                a = math.tau * i / 4
+                _chair(b, 1.75 * math.cos(a), .6 + 1.75 * math.sin(a), z)
+                _cylinder(b, (.8 * math.cos(a), .6 + .8 * math.sin(a), z + .97),
+                          (.8 * math.cos(a), .6 + .8 * math.sin(a), z + 1.10), .13, "white")
+        elif kind == "machine":
+            _box(b, (0, back + .8, z + .48), (rx * 1.18, 1.25, .95), "paint")
+            _box(b, (0, back + .8, z + 1), (rx * 1.25, 1.35, .13), "edge")
+            for i in range(8):
+                x = (i - 3.5) * rx * .13
+                _box(b, (x, back + .17, z + 1.7), (.055, .08, .4 + (i % 3) * .1), "amber")
+            for side in (-1, 1):
+                _box(b, (side * rx * .53, 1, z + .52), (1.2, 1.2, 1.04), "hull")
+                _box(b, (side * rx * .53, 1, z + 1.06), (1.05, 1.05, .08), "amber")
+            crew = [("Amos", .4, back + 1.9, False)]
+        else:
+            # Contained reactor vessel, coolant rings, manifold and service consoles.
+            _cylinder(b, (0, 0, z + .1), (0, 0, z + 2.1), .9, "dark", facets=24)
+            for level in range(5):
+                zz = z + .32 + level * .4
+                _tube(b, (0, 0, zz), (0, 0, zz + .12), 1.03, .9,
+                      "screen" if level % 2 else "edge", facets=24, recessed=False)
+            for side in (-1, 1):
+                for i in range(3):
+                    x = side * (1.5 + i * .32)
+                    _cylinder(b, (x, -.8, z + .15), (x, -.8, z + 2.35), .10, "amber" if i == 0 else "edge")
+                _screen(b, side * rx * .48, back + .2, z + 1.45, 1.2, .9)
+            crew = [("Naomi", 1.7, .9, False)]
+        obj = tag(mesh_from(name, b), name)
+        obj["assembly_kind"] = "deck"
+        # Metadata is in browser axes (Y up), independent of Blender's Z up.
+        obj["assembly_offset"] = [0, (2.5 - index) * 2.8, -1.5]
+        obj["deck_label"] = deck["name"]
+        obj["deck_index"] = index
+        obj["deck_station"] = z
+        out.append(obj)
+        available_crew = {member["name"] for member in spec["crew"]}
+        for crew_name, x, y, seated in crew:
+            if crew_name not in available_crew:
+                continue
+            person = MeshBuilder()
+            _person(person, x, y, z + .025, crew_name, seated)
+            person_name = f"crew_{crew_name.lower()}"
+            figure = tag(mesh_from(person_name, person), person_name)
+            figure["assembly_kind"] = "crew"
+            figure["assembly_offset"] = list(obj["assembly_offset"])
+            figure["crew_name"] = crew_name
+            figure["deck_index"] = index
+            out.append(figure)
     return out
 
 
@@ -587,6 +804,13 @@ def apply_materials(objects):
         make("oxide_identification", (0.34, 0.068, 0.027, 1), 0.25, 0.58),
         make("ceramic_markings", (0.62, 0.65, 0.63, 1), 0.15, 0.65),
         make("navigation_lights", (0.48, 0.65, 0.8, 1), 0.15, 0.25, ((0.55, 0.76, 1.0, 1), 2.0)),
+        make("console_cyan", (0.015, 0.12, 0.18, 1), 0.3, 0.3, ((0.02, 0.42, 0.65, 1), 0.65)),
+        make("safety_amber", (0.8, 0.32, 0.045, 1), 0.2, 0.5),
+        make("crash_couch_and_flight_suit", (0.045, 0.085, 0.12, 1), 0.05, 0.92),
+        make("crew_skin", (0.55, 0.30, 0.19, 1), 0.0, 0.9),
+        make("crew_skin_warm", (0.29, 0.13, 0.07, 1), 0.0, 0.9),
+        make("crew_hair", (0.019, 0.013, 0.012, 1), 0.0, 0.97),
+        make("galley_greens", (0.06, 0.28, 0.08, 1), 0.0, 0.8),
     )
     for obj in objects:
         for material in materials:

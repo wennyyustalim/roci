@@ -395,3 +395,47 @@ def test_demo_mode_accepts_every_ask_and_shares_the_right_pair(tmp_path, monkeyp
     bow = bench.propose({"preset": "bow"})["iterations"][-1]
     assert bow["geometry_changed_parts"] == ["tube_*"]
     assert bow["spec"]["weapons"]["tube_station"] == 0.88
+
+
+def test_demo_torpedo_refit_keeps_ship_and_crew_static(tmp_path):
+    bench = Workbench(tmp_path, torpedo_only=True, auto_accept=True)
+    baseline = bench.snapshot()["iterations"][0]
+    for preset in ("fins", "nose", "four_fins"):
+        result = bench.propose({"preset": preset})["iterations"][-1]
+        for field in ("name", "hull", "drive", "weapons", "decks", "crew"):
+            assert result["spec"][field] == baseline["spec"][field]
+        assert result["geometry_changed_parts"] == []
+        assert result["torpedo"]["changed"]
+    assert "armor" not in bench.snapshot()["presets"]
+    with pytest.raises(ValueError, match="supported"):
+        bench.propose({"preset": "armor"})
+
+
+@pytest.mark.parametrize("field", ["hull", "drive", "weapons", "decks", "crew"])
+def test_demo_rejects_model_ship_edits_before_writing(tmp_path, monkeypatch, field):
+    bench = Workbench(tmp_path, live=True, torpedo_only=True, auto_accept=True)
+    original_state = bench.path.read_bytes()
+    original_blender = bench.blender_spec_path.read_bytes()
+
+    def proposal(self, ship, ask):
+        assert self.torpedo_only
+        after = ship.model_copy(deep=True)
+        after.torpedo.nose.length_m += .05
+        if field == "hull":
+            after.hull.length_m += 1
+        elif field == "drive":
+            after.drive.propellant_t += 1
+        elif field == "weapons":
+            after.weapons.torpedo_tubes += 1
+        elif field == "decks":
+            after.decks[0].name = "Changed"
+        else:
+            after.crew[0].name = "Changed"
+        return after
+
+    monkeypatch.setattr("rocinante.workbench.RefitAgent.propose", proposal)
+    with pytest.raises(ValueError, match="Roci is static"):
+        bench.propose({"ask": "Change my torpedo"})
+    assert bench.path.read_bytes() == original_state
+    assert bench.blender_spec_path.read_bytes() == original_blender
+    assert len(bench.state["iterations"]) == 1

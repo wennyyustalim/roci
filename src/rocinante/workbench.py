@@ -44,6 +44,24 @@ SAMPLE_ASKS = [
 ]
 
 
+TORPEDO_PRESETS = {
+    "fins": "Give the torpedo larger swept fins",
+    "nose": "Lengthen the torpedo nose by 5 cm",
+    "four_fins": "Use four fins on the torpedo",
+}
+TORPEDO_ASKS = [
+    "Give the torpedo four larger swept fins for a stable launch",
+    "Lengthen the torpedo nose by 5 cm",
+    "Switch the torpedo motor to a 29 mm F-class and lengthen the booster tube to fit it",
+]
+
+
+def validate_static_ship(before: ShipSpec, after: ShipSpec):
+    """Demo edits are limited to the torpedo, enforced before any revision write."""
+    if before.model_dump(exclude={"torpedo", "rationale"}) != after.model_dump(exclude={"torpedo", "rationale"}):
+        raise ValueError("The Roci is static in this demo. Only the torpedo can be redesigned; the ship is preserved.")
+
+
 def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
     after = ship.model_copy(deep=True)
     if preset == "torpedoes":
@@ -74,6 +92,12 @@ def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
             "Fixture: mount the launch tubes at the bow. Placement only; mass and "
             "performance are unchanged, and Blender moves the tube cassettes."
         )
+    elif preset == "nose":
+        after.torpedo.nose.length_m += 0.05
+        after.rationale = "Fixture: lengthen the torpedo nose by 5 cm; keep the Roci fixed."
+    elif preset == "four_fins":
+        after.torpedo.fins.count = 4 if after.torpedo.fins.count != 4 else 3
+        after.rationale = f"Fixture: use {after.torpedo.fins.count} fins on the torpedo; keep the Roci fixed."
     elif preset == "fins":
         fins = after.torpedo.fins
         fins.root_chord_m += 0.02
@@ -109,12 +133,14 @@ class Workbench:
         auto_export: bool = False,
         auto_accept: bool = False,
         auto_share: bool = False,
+        torpedo_only: bool = False,
         on_share_url: Callable[[str], None] | None = None,
         blender_geometry: list[str] | None = None,
         openrocket_bounds: Bounds | None = None,
     ):
         self.out = out
         self.live = live
+        self.torpedo_only = torpedo_only
         self.show_blender = show_blender
         self.show_openrocket = show_openrocket
         # Regenerate real Blender geometry for every revision so the viewer
@@ -221,12 +247,13 @@ class Workbench:
         temporary.replace(self.path)
 
     def snapshot(self):
-        return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS,
+        return {**self.state, "mode": "live" if self.live else "fixture", "presets": TORPEDO_PRESETS if self.torpedo_only else PRESETS,
                 "model": model_name() if self.live else None,
                 "kord_base": KordClient().base_url,
                 "openrocket": self.show_openrocket, "blender": self.show_blender,
                 "auto_accept": self.auto_accept, "auto_share": self.auto_share,
-                "sample_asks": SAMPLE_ASKS,
+                "sample_asks": TORPEDO_ASKS if self.torpedo_only else SAMPLE_ASKS,
+                "torpedo_only": self.torpedo_only,
                 "torpedo_file": str(self.torpedo_path) if self.torpedo_path else None}
 
     def revision(self, payload: dict):
@@ -305,13 +332,16 @@ class Workbench:
             ask = payload.get("ask", "")
             if not isinstance(ask, str) or not ask.strip() or len(ask) > 2000:
                 raise ValueError("Enter a refit request of 1–2000 characters")
-            after = RefitAgent(build_meshes=False).propose(ship, ask)
+            after = RefitAgent(build_meshes=False, torpedo_only=self.torpedo_only).propose(ship, ask)
         else:
-            preset = payload.get("preset", "torpedoes")
-            if not isinstance(preset, str) or preset not in PRESETS:
+            presets = TORPEDO_PRESETS if self.torpedo_only else PRESETS
+            preset = payload.get("preset", "fins" if self.torpedo_only else "torpedoes")
+            if not isinstance(preset, str) or preset not in presets:
                 raise ValueError("Choose a supported fixture preset")
-            ask = PRESETS[preset]
+            ask = presets[preset]
             after = fixture_proposal(ship, preset)
+        if self.torpedo_only:
+            validate_static_ship(ship, after)
         result = RefitResult(ask=ask, before=ship, after=after, diff=diff_ships(ship, after))
         index = len(self.state["iterations"])
         entry = self.entry(after, index, "approved" if self.auto_accept else "pending", result)
@@ -387,7 +417,10 @@ def make_server(workbench: Workbench, port: int) -> HTTPServer:
             assets = {"/": ("loop.html", "text/html; charset=utf-8"),
                       "/loop.js": ("loop.js", "text/javascript"),
                       "/loop.css": ("loop.css", "text/css"),
-                      "/primitives.js": ("primitives.js", "text/javascript")}
+                      "/primitives.js": ("primitives.js", "text/javascript"),
+                      "/assembly.js": ("assembly.js", "text/javascript"),
+                      "/rocinante.glb": ("rocinante.glb", "model/gltf-binary"),
+                      "/interior-references": ("interior-references.html", "text/html; charset=utf-8")}
             if self.path not in assets:
                 return self.reply(404, {"error": "Not found"})
             name, mime = assets[self.path]

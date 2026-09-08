@@ -42,12 +42,20 @@ roci demo                              # live model when OPENAI_API_KEY is in .e
 roci demo --fixture --out out/demo-fixture   # deterministic rehearsal, no credentials
 ```
 
-`roci` is `bin/roci`; symlink it onto your PATH once. Shared comparisons go
-to the public Kord regardless of the local `KORD_API_BASE` in `.env`; pass
-`--kord` to change that. Blender must be installed for Export comparison. Set
-`BLENDER_BIN` if it is not at `/Applications/Blender.app/Contents/MacOS/Blender`.
-The viewer loads Three.js from jsDelivr; sharing requires access to Kord.
-Primitive preview, review and physics work without Blender.
+`roci` is `bin/roci`; symlink it onto your PATH once. Comparisons go to
+whichever Kord `KORD_API_BASE` names in `.env` — the local one, so the
+comparison window is the same instance each revision uploads to. Start it
+first (`pnpm dev` in the Kord checkout); the demo says so at startup if it is
+not answering. Pass `--kord https://work.withkord.com` for the public one.
+Blender must be installed for Export comparison. Set `BLENDER_BIN` if it is
+not at `/Applications/Blender.app/Contents/MacOS/Blender`. The viewer loads
+Three.js from jsDelivr; sharing requires access to Kord. Primitive preview,
+review and physics work without Blender.
+
+The second Chrome window opens on Kord's comparison UI at `<kord>/diff` with
+nothing dropped on it. Each revision's link replaces it, so the comparison
+follows the ship as Astra rearms it. On the public Kord that page is the same
+one anyone gets; on the local one it is served by the dev server.
 
 Stop the previous server first if reusing the port; the command refuses a
 busy port rather than opening windows onto someone else's workbench. The CLI

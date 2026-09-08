@@ -10,6 +10,16 @@ a new window on top of the last at the same spot. Kord is a Chrome window the
 workbench points at the newest comparison link. Nothing here clicks inside
 another app: an earlier attempt to close OpenRocket windows through the
 accessibility tree hit a content button instead and wedged the app.
+
+OPENROCKET IS NOT PLACED THROUGH SYSTEM EVENTS, and cannot be. It is a Swing
+app, and Swing publishes no windows to the macOS accessibility API: with the
+torpedo plainly on screen, `count of windows` of its process is 0, so there is
+nothing for AppleScript to move. Its process is not called "OpenRocket"
+either -- the install4j bundle runs as `JavaApplicationStub`, so even
+`exists process "OpenRocket"` is false. What OpenRocket does do is save its
+main frame's geometry in the Java preferences plist and restore it on launch.
+`prepare_openrocket()` writes the quadrant there before the app starts; see
+its docstring for why the app has to be quit for that to take.
 """
 
 from __future__ import annotations
@@ -17,7 +27,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -25,6 +34,12 @@ from pathlib import Path
 CHROME_APP = "Google Chrome"
 OPENROCKET_APP = "OpenRocket"
 MENU_BAR = 33  # points, macOS menu bar; windows cannot sit above it.
+
+# Where Java's Preferences API keeps this user's settings, and the node
+# OpenRocket restores its main window from.
+JAVA_PREFS = Path("~/Library/Preferences/com.apple.java.util.prefs.plist").expanduser()
+OPENROCKET_WINDOWS = ":/:OpenRocket/:windows/"
+OPENROCKET_FRAME = "info.openrocket.swing.gui.main.BasicFrame"
 
 Bounds = tuple[int, int, int, int]  # x, y, width, height; origin top-left.
 
@@ -44,6 +59,19 @@ def _mac_app_available(name: str) -> bool:
     return sys.platform == "darwin" and (
         Path(f"/Applications/{name}.app").exists()
         or Path(f"~/Applications/{name}.app").expanduser().exists()
+    )
+
+
+def process_name(app: str) -> str:
+    """The name System Events knows `app` by, or "" when it is not running.
+
+    System Events keys processes by executable name, which is not always the
+    app's own: OpenRocket runs as `JavaApplicationStub`. Look it up by the
+    displayed name instead of assuming they match.
+    """
+    return _osascript(
+        'tell application "System Events" to get name of first process '
+        f'whose displayed name is "{app}"'
     )
 
 
@@ -76,35 +104,6 @@ def blender_geometry(bounds: Bounds, screen_height: int) -> list[str]:
     """Blender's --window-geometry wants a bottom-left origin."""
     x, y, w, h = bounds
     return ["--window-geometry", str(x), str(screen_height - (y + h)), str(w), str(h)]
-
-
-def place_window(process: str, title_contains: str, bounds: Bounds, wait_s: float = 60.0) -> None:
-    """Move a window of a desktop app into place once it exists. Best effort, in the background."""
-    x, y, w, h = bounds
-    script = f'''
-tell application "System Events"
-    if not (exists process "{process}") then return "no process"
-    tell process "{process}"
-        repeat with win in windows
-            if name of win contains "{title_contains}" then
-                set position of win to {{{x}, {y}}}
-                set size of win to {{{w}, {h}}}
-                return "placed"
-            end if
-        end repeat
-    end tell
-end tell
-return "no window"
-'''
-
-    def worker() -> None:
-        deadline = time.monotonic() + wait_s
-        while time.monotonic() < deadline:
-            if _osascript(script) == "placed":
-                return
-            time.sleep(1.0)
-
-    threading.Thread(target=worker, name=f"place-{process}", daemon=True).start()
 
 
 # --- Chrome -----------------------------------------------------------------
@@ -169,8 +168,71 @@ def openrocket_available() -> bool:
     return _mac_app_available(OPENROCKET_APP) or shutil.which("openrocket") is not None
 
 
+def openrocket_running() -> bool:
+    return bool(process_name(OPENROCKET_APP))
+
+
 def openrocket_window_title(rocket_name: str, path: Path) -> str:
     return f"{rocket_name} ({Path(path).name})"
+
+
+def _plist_write(entry: str, value: str, path: Path = JAVA_PREFS) -> bool:
+    """Set one string entry, creating it when the node is new. True when it took."""
+    for command in (f"Set {entry} {value}", f"Add {entry} string {value}"):
+        done = subprocess.run(["/usr/libexec/PlistBuddy", "-c", command, str(path)],
+                              capture_output=True, text=True, check=False)
+        if done.returncode == 0:
+            return True
+    return False
+
+
+def seed_openrocket_bounds(bounds: Bounds, path: Path = JAVA_PREFS) -> bool:
+    """Write the geometry OpenRocket restores its main window from.
+
+    This is the only lever we have on where that window lands (see the module
+    docstring), and it is read at launch, so it must be written while the app
+    is not running -- OpenRocket owns the file in between and writes its own
+    values back on exit.
+    """
+    if sys.platform != "darwin":
+        return False
+    x, y, w, h = bounds
+    for node in (":/", ":/:OpenRocket/", OPENROCKET_WINDOWS):
+        subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Add {node} dict", str(path)],
+                       capture_output=True, text=True, check=False)  # no-op when present
+    return all(
+        _plist_write(f"{OPENROCKET_WINDOWS}:{key}.{OPENROCKET_FRAME}", value, path)
+        for key, value in (("position", f"{x},{y}"), ("size", f"{w},{h}"))
+    )
+
+
+def quit_openrocket(wait_s: float = 12.0) -> bool:
+    """Ask OpenRocket to quit and wait for it to go. False if it is still up.
+
+    It stays up when it has an unsaved design and puts a save prompt on screen.
+    That is a person's decision, so the caller carries on without it rather
+    than forcing anything.
+    """
+    if not openrocket_running():
+        return True
+    _osascript(f'quit app "{OPENROCKET_APP}"')
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        if not openrocket_running():
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def prepare_openrocket(bounds: Bounds | None) -> bool:
+    """Get OpenRocket ready to open the torpedo in its quadrant. True when it will land there.
+
+    Restarting it is what makes the seeded geometry take, and it also clears
+    the stack of windows every previous revision left behind.
+    """
+    if bounds is None or not _mac_app_available(OPENROCKET_APP):
+        return False
+    return quit_openrocket() and seed_openrocket_bounds(bounds)
 
 
 def open_openrocket(path: Path, rocket_name: str | None = None,
@@ -178,9 +240,9 @@ def open_openrocket(path: Path, rocket_name: str | None = None,
     """Show a `.ork` in OpenRocket. Returns how it was opened, or None when it is not installed."""
     resolved = Path(path).resolve()
     if _mac_app_available(OPENROCKET_APP):
+        if bounds and not openrocket_running():
+            seed_openrocket_bounds(bounds)
         subprocess.run(["open", "-a", OPENROCKET_APP, str(resolved)], check=False)
-        if bounds and rocket_name:
-            place_window(OPENROCKET_APP, openrocket_window_title(rocket_name, resolved), bounds)
         return OPENROCKET_APP
     if shutil.which("openrocket"):
         subprocess.Popen(

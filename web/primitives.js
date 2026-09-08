@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { createAssembly } from "./assembly.js";
 
 // The stage: deep space, the Roci in the middle, the neighbourhood far away.
 // Blender's export is the ship; the schematic below is only the fallback
@@ -41,20 +42,25 @@ function seeded(seed) { let s=seed>>>0; return ()=> { s=(s*1664525+1013904223)>>
 function galaxyTexture() {
   const w=2048, h=1024, canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h;
   const ctx=canvas.getContext("2d"), rand=seeded(7);
-  ctx.fillStyle="#03050c"; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle="#02040a"; ctx.fillRect(0,0,w,h);
   // The band: a tilted sine of soft blobs, brighter and warmer toward the core.
   const blob=(x,y,r,rgb,a)=> { const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,`rgba(${rgb},${a})`); g.addColorStop(1,`rgba(${rgb},0)`); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,2*r,2*r); };
   for(let i=0;i<900;i++) {
     const t=rand(), x=t*w, core=Math.exp(-((t-.42)**2)/.03);
     const y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()-.5)*h*(.06+.10*core);
     const warm=rand()<.4+core*.4;
-    blob(x,y,18+rand()*70*(0.5+core),warm ? "232,205,170" : "140,170,230",.09+.16*core);
+    blob(x,y,12+rand()*55*(0.5+core),warm ? "158,148,135" : "91,118,158",.018+.035*core);
   }
   for(let i=0;i<40;i++) { // dust lanes
     const t=rand(), x=t*w, y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()-.5)*h*.05;
     blob(x,y,25+rand()*60,"5,6,14",.45);
   }
-  for(let i=0;i<8;i++) blob(rand()*w,rand()*h,120+rand()*220,rand()<.5 ? "120,90,200" : "80,140,200",.12); // nebulae
+  // Fine distant stars belong to the sky, with only a few bright foreground stars.
+  for(let i=0;i<18000;i++) {
+    const t=rand(), x=t*w, y=h*.5+Math.sin(t*Math.PI*2)*h*.16+(rand()+rand()+rand()-1.5)*h*.12;
+    ctx.fillStyle=`rgba(183,199,221,${.08+rand()*.28})`;
+    ctx.fillRect(x,y,.35+rand()*.55,.35+rand()*.55);
+  }
   const texture=new THREE.CanvasTexture(canvas); texture.mapping=THREE.EquirectangularReflectionMapping; texture.colorSpace=THREE.SRGBColorSpace;
   return texture;
 }
@@ -78,35 +84,181 @@ function stars(count, radius, size, seed) {
   return new THREE.Points(geometry,new THREE.PointsMaterial({size,map:starDot(),vertexColors:true,transparent:true,depthWrite:false,sizeAttenuation:false,opacity:.9}));
 }
 
-function label(text, size) {
+function label(text, size, subtitle="") {
   const c=document.createElement("canvas"); c.width=512; c.height=128; const ctx=c.getContext("2d");
-  ctx.font="500 44px ui-monospace, Menlo, monospace"; ctx.textAlign="center"; ctx.textBaseline="middle";
-  ctx.fillStyle="rgba(190,205,225,.95)"; ctx.fillText(text,256,64);
-  const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));
+  ctx.font="500 30px ui-monospace, Menlo, monospace"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillStyle="rgba(196,213,231,.9)"; ctx.fillText(text,256,44);
+  ctx.fillStyle="rgba(126,158,184,.7)"; ctx.font="18px ui-monospace, Menlo, monospace"; ctx.fillText(subtitle,256,80);
+  ctx.fillRect(232,108,48,1);
+  const texture=new THREE.CanvasTexture(c); texture.colorSpace=THREE.SRGBColorSpace;
+  const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthWrite:false,toneMapped:false}));
   sprite.scale.set(size*4,size,1); return sprite;
 }
 
+const metal=(color,roughness=.65)=>new THREE.MeshStandardMaterial({color,roughness,metalness:.55});
+const luminous=color=>new THREE.MeshBasicMaterial({color,toneMapped:false});
+function mesh(parent,geometry,material,x=0,y=0,z=0) {
+  const object=new THREE.Mesh(geometry,material); object.position.set(x,y,z); parent.add(object); return object;
+}
+function hoop(parent,radius,tube,material,z=0) {
+  return mesh(parent,new THREE.TorusGeometry(radius,tube,8,128),material,0,0,z);
+}
+// Repeated hull plates and windows share geometry and a single draw call.
+function radialInstances(parent,geometry,material,count,radius,z=0,phase=0) {
+  const instances=new THREE.InstancedMesh(geometry,material,count), transform=new THREE.Object3D();
+  for(let i=0;i<count;i++) {
+    const angle=i/count*Math.PI*2+phase;
+    transform.position.set(Math.cos(angle)*radius,Math.sin(angle)*radius,z);
+    transform.rotation.z=angle; transform.updateMatrix(); instances.setMatrixAt(i,transform.matrix);
+  }
+  parent.add(instances); return instances;
+}
+
+function ceresBody() {
+  const group=new THREE.Group(), rand=seeded(31), craters=[];
+  for(let i=0;i<46;i++) {
+    const y=rand()*2-1, a=rand()*Math.PI*2, r=Math.sqrt(1-y*y);
+    craters.push({center:new THREE.Vector3(r*Math.cos(a),y,r*Math.sin(a)),radius:.035+rand()*.17});
+  }
+  // Continuous surface displacement keeps the UV seam and poles joined.
+  const terrain=v=> {
+    let height=.0008*Math.sin(v.x*37+v.y*19)*Math.sin(v.z*41-v.y*23)
+      +.003*Math.sin(v.x*12+v.z*9)*Math.cos(v.y*17-v.z*6);
+    for(const crater of craters) {
+      const d=v.distanceTo(crater.center)/crater.radius;
+      if(d<1.4) height+=crater.radius*(-.19*Math.exp(-d*d*3.4)+.065*Math.exp(-(((d-.95)/.16)**2)));
+    }
+    return height;
+  };
+  const rock=new THREE.SphereGeometry(150,160,96), pos=rock.getAttribute("position"), colors=[];
+  const direction=new THREE.Vector3(), color=new THREE.Color();
+  for(let i=0;i<pos.count;i++) {
+    direction.fromBufferAttribute(pos,i).normalize(); const height=terrain(direction);
+    const grain=Math.sin(direction.x*73)*Math.sin(direction.y*91)*Math.sin(direction.z*83);
+    const shade=THREE.MathUtils.clamp(.2+height*1.5+.012*grain,.1,.28);
+    color.setRGB(shade*1.06,shade,shade*.91); colors.push(color.r,color.g,color.b);
+    direction.multiplyScalar(150*(1+height)); pos.setXYZ(i,direction.x,direction.y*.94,direction.z);
+  }
+  rock.setAttribute("color",new THREE.Float32BufferAttribute(colors,3)); rock.computeVertexNormals();
+  // Independent solar shading keeps a readable terminator without changing the
+  // brighter workbench lights used to inspect the ship and station hardware.
+  mesh(group,rock,new THREE.ShaderMaterial({
+    vertexColors:true,
+    vertexShader:`varying vec3 surfaceNormal; varying vec3 surfaceColor;
+      void main() {
+        surfaceNormal=mat3(modelMatrix)*normal; surfaceColor=color;
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+      }`,
+    fragmentShader:`varying vec3 surfaceNormal; varying vec3 surfaceColor;
+      void main() {
+        vec3 n=normalize(surfaceNormal);
+        float sunlight=max(dot(n,normalize(vec3(-.45,.8,-.2))),0.0);
+        gl_FragColor=vec4(surfaceColor*(.07+sunlight*2.4),1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  }));
+  // Clusters of warm ports embedded in an equatorial belt, not an atmosphere.
+  const lights=[], lightColors=[];
+  for(let i=0;i<320;i++) {
+    const cluster=i%7, angle=cluster*.9+(rand()-.5)*.16, latitude=(rand()-.5)*.1;
+    direction.set(Math.cos(angle)*Math.cos(latitude),Math.sin(latitude),Math.sin(angle)*Math.cos(latitude));
+    direction.multiplyScalar(150*(1+terrain(direction))+.45); direction.y*=.94;
+    lights.push(direction.x,direction.y,direction.z); lightColors.push(1,.5+rand()*.3,.25);
+  }
+  const ports=new THREE.BufferGeometry(); ports.setAttribute("position",new THREE.Float32BufferAttribute(lights,3));
+  ports.setAttribute("color",new THREE.Float32BufferAttribute(lightColors,3));
+  group.add(new THREE.Points(ports,new THREE.PointsMaterial({map:starDot(),vertexColors:true,size:1.7,sizeAttenuation:false,transparent:true,depthWrite:false,toneMapped:false})));
+  group.userData.spin=.008; return group;
+}
+
+function tychoStation() {
+  const group=new THREE.Group(), habitat=new THREE.Group(); group.add(habitat);
+  const hull=metal(0x87939c), dark=metal(0x273642), edge=metal(0xb2b9b8), rust=metal(0x9d5036);
+  const warm=luminous(0xffbf73), cool=luminous(0x8dd8ef);
+  hoop(habitat,128,10,dark);
+  for(const z of [-9,9]) hoop(habitat,128,2,edge,z);
+  radialInstances(habitat,new THREE.BoxGeometry(20,15,19),hull,48,128);
+  radialInstances(habitat,new THREE.BoxGeometry(1,9,2),warm,96,139,5);
+  radialInstances(habitat,new THREE.BoxGeometry(23,4,21),rust,12,128);
+  // A rotating habitat around a stationary construction spindle.
+  for(let i=0;i<6;i++) {
+    const arm=new THREE.Group(); arm.rotation.z=i*Math.PI/3; habitat.add(arm);
+    for(const z of [-6,6]) mesh(arm,new THREE.BoxGeometry(110,2.2,2.2),edge,70,0,z);
+    for(let j=0;j<7;j++) {
+      const brace=mesh(arm,new THREE.BoxGeometry(17,1.4,1.4),dark,24+j*15,0,0);
+      brace.rotation.y=(j%2 ? 1 : -1)*.65;
+    }
+  }
+  mesh(group,new THREE.CylinderGeometry(21,26,155,24),hull).rotation.x=Math.PI/2;
+  for(const z of [-72,-42,42,72]) hoop(group,25,3,dark,z);
+  mesh(group,new THREE.CylinderGeometry(31,31,12,24),dark,0,0,-80).rotation.x=Math.PI/2;
+  hoop(group,22,1.5,cool,-87);
+  for(let i=0;i<3;i++) {
+    const dock=new THREE.Group(); dock.rotation.z=i*Math.PI*2/3+.3; group.add(dock);
+    mesh(dock,new THREE.BoxGeometry(130,6,8),edge,80,0,52);
+    mesh(dock,new THREE.BoxGeometry(7,7,75),rust,142,0,20);
+    mesh(dock,new THREE.BoxGeometry(26,18,40),hull,90,0,52);
+    mesh(dock,new THREE.BoxGeometry(38,28,2),dark,58,22,53);
+    for(let j=0;j<5;j++) mesh(dock,new THREE.BoxGeometry(1,26,1),edge,42+j*8,22,55);
+    mesh(dock,new THREE.SphereGeometry(2,8,6),warm,142,0,-18);
+  }
+  habitat.userData.spin=.045; return group;
+}
+
+function ringGate() {
+  const group=new THREE.Group(), shell=metal(0x273b47,.42), rib=metal(0x50616a,.5), glow=luminous(0x80eaff);
+  hoop(group,520,16,shell);
+  for(const z of [-11,11]) {
+    hoop(group,520,3,rib,z); hoop(group,503,1.9,glow,z);
+  }
+  radialInstances(group,new THREE.BoxGeometry(30,7,31),rib,96,520);
+  radialInstances(group,new THREE.BoxGeometry(3,19,5),glow,192,500);
+  radialInstances(group,new THREE.BoxGeometry(44,21,39),shell,12,520);
+  // A transparent edge field leaves distant stars visible through the aperture.
+  const field=new THREE.ShaderMaterial({
+    uniforms:{time:{value:0}}, transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending,
+    vertexShader:`varying vec2 local; void main() { local=position.xy/560.0; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`varying vec2 local; uniform float time;
+      void main() {
+        float r=length(local), angle=atan(local.y,local.x);
+        float rim=exp(-abs(r-.896)*95.0);
+        float halo=exp(-abs(r-.896)*20.0)*.14;
+        float ripple=sin(r*95.0-time*.7+sin(angle*7.0)*.8)*.5+.5;
+        float inner=smoothstep(.5,.89,r)*(1.0-smoothstep(.89,.92,r));
+        gl_FragColor=vec4(.21,.68,.85,(rim*.36+halo+inner*ripple*.035));
+      }`,
+  });
+  mesh(group,new THREE.PlaneGeometry(1120,1120),field);
+  group.userData.field=field; return group;
+}
+
 function neighbourhood() {
-  const group=new THREE.Group(), rand=seeded(3);
-  // Ceres: a lumpy rock.
-  const rock=new THREE.IcosahedronGeometry(90,4), pos=rock.getAttribute("position");
-  for(let i=0;i<pos.count;i++) { const v=new THREE.Vector3().fromBufferAttribute(pos,i); v.multiplyScalar(1+(rand()-.5)*.12); pos.setXYZ(i,v.x,v.y,v.z); }
-  rock.computeVertexNormals();
-  const ceres=new THREE.Mesh(rock,new THREE.MeshStandardMaterial({color:0x8a8078,roughness:.95,metalness:.05,flatShading:true}));
-  ceres.position.set(-1100,-160,1500); group.add(ceres);
-  const ceresLabel=label("CERES",60); ceresLabel.position.copy(ceres.position).add(new THREE.Vector3(0,150,0)); group.add(ceresLabel);
-  // Tycho: a spinning ring station.
-  const tycho=new THREE.Group();
-  tycho.add(new THREE.Mesh(new THREE.TorusGeometry(70,9,12,48),new THREE.MeshStandardMaterial({color:0x9aa7b8,roughness:.6,metalness:.4})));
-  tycho.add(new THREE.Mesh(new THREE.CylinderGeometry(16,16,110,16),new THREE.MeshStandardMaterial({color:0xb5c0cf,roughness:.5,metalness:.5})).rotateX(Math.PI/2));
-  for(let i=0;i<4;i++) { const spoke=new THREE.Mesh(new THREE.BoxGeometry(4,140,4),new THREE.MeshStandardMaterial({color:0x7d8896})); spoke.rotation.z=i*Math.PI/4; tycho.add(spoke); }
-  tycho.position.set(1300,240,1100); tycho.rotation.x=.5; tycho.userData.spin=.0018; group.add(tycho);
-  const tychoLabel=label("TYCHO",60); tychoLabel.position.copy(tycho.position).add(new THREE.Vector3(0,130,0)); group.add(tychoLabel);
-  // The Ring: far, huge, faintly lit from inside.
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(520,14,20,200),new THREE.MeshStandardMaterial({color:0x5c6b85,emissive:0x2a4d7a,emissiveIntensity:.7,roughness:.4,metalness:.6}));
-  ring.position.set(500,1000,4200); ring.rotation.set(1.05,.4,0); ring.userData.spin=.0004; group.add(ring);
-  const ringLabel=label("THE RING",200); ringLabel.position.copy(ring.position).add(new THREE.Vector3(0,620,0)); group.add(ringLabel);
-  return group;
+  const group=new THREE.Group();
+  const landmarks={ceres:ceresBody(),tycho:tychoStation(),ring:ringGate()};
+  // The Roci sits at the origin, surrounded by three separate bearings.
+  // Leave the Ring farther out to retain its much larger sense of scale.
+  const destinations=[
+    {name:"ring",distance:5200,height:600},
+    {name:"tycho",distance:2800,height:300},
+    {name:"ceres",distance:2800,height:-400},
+  ];
+  destinations.forEach(({name,distance,height},index)=> {
+    const bearing=-Math.PI/4+index*Math.PI*2/3;
+    landmarks[name].position.set(Math.sin(bearing)*distance,height,Math.cos(bearing)*distance);
+  });
+  for(const [name,body] of Object.entries(landmarks)) {
+    body.name=name;
+    if(name!=="ceres") body.lookAt(0,0,0);
+    if(name==="tycho") body.rotateY(.35);
+    group.add(body);
+    const size=name==="ring" ? 150 : 65, offset=name==="ring" ? 660 : 220;
+    const tag=label(name==="ring" ? "THE RING" : name.toUpperCase(),size,
+      {ceres:"BELT / CERES STATION",tycho:"TYCHO / CONSTRUCTION YARDS",ring:"SOL / RING GATE"}[name]);
+    tag.position.copy(body.position).add(new THREE.Vector3(0,offset,0)); group.add(tag);
+  }
+  group.userData.landmarks=landmarks; return group;
 }
 
 export function createScene(container) {
@@ -117,7 +269,7 @@ export function createScene(container) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05;
   container.append(renderer.domElement);
   scene.background=galaxyTexture();
-  scene.add(stars(5000,9000,2.2,11), stars(1200,8000,3.4,13));
+  scene.add(stars(3600,14000,1.15,11), stars(180,13000,2.5,13));
   const far=neighbourhood(); scene.add(far);
   const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotateSpeed=.5; controls.minDistance=8; controls.maxDistance=2500;
   scene.add(new THREE.HemisphereLight(0xb9d4ff,0x1a2233,1.4));
@@ -125,7 +277,9 @@ export function createScene(container) {
   const fill=new THREE.DirectionalLight(0x9bc0ff,1.6); fill.position.set(-500,100,400); scene.add(fill);
   const models=new THREE.Group(); scene.add(models);
   const gltf=new GLTFLoader(), glbCache=new Map();
-  let loadRequest=0;
+  let loadRequest=0, lastUpdate="";
+  const assembly=createAssembly(models,camera,controls,container);
+  container.addEventListener("assemblychange",event=>{far.visible=event.detail.focus===null;});
 
   // Blender writes the semantic part tag as a glTF extra; fall back to names.
   function partOf(object) {
@@ -191,43 +345,87 @@ export function createScene(container) {
     const c=box.getCenter(new THREE.Vector3()); root.position.sub(c); return root;
   }
   let framed=false;
+  function viewport() {
+    const {clientWidth:w,clientHeight:h}=container;
+    return {w,h,left:0,top:0,width:w,height:h};
+  }
+  function frameDistance(radius,padding) {
+    const view=viewport();
+    const halfFov=Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*Math.min(view.width,view.height)/Math.max(view.h,1));
+    const distance=radius/Math.sin(halfFov)*padding;
+    controls.maxDistance=Math.max(2500,distance*1.5);
+    return distance;
+  }
   function fit() {
+    if(assembly.ready) { assembly.frame(); framed=true; return; }
     const box=new THREE.Box3().setFromObject(models); if(box.isEmpty()) return;
     const sphere=box.getBoundingSphere(new THREE.Sphere());
-    const fov=Math.min(THREE.MathUtils.degToRad(camera.fov),2*Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.aspect));
-    const distance=sphere.radius/Math.sin(fov/2)*1.25;
-    const direction=models.userData.rocinanteGlb ? new THREE.Vector3(.7,.25,-1) : new THREE.Vector3(.7,.25,1);
+    const distance=frameDistance(sphere.radius,1.1);
+    const direction=new THREE.Vector3(.7,.25,-1);
     camera.position.copy(sphere.center).addScaledVector(direction.normalize(),distance);
     controls.target.copy(sphere.center); controls.update(); framed=true;
   }
   new ResizeObserver(() => {
-    const {clientWidth:w,clientHeight:h}=container; renderer.setSize(w,h); camera.aspect=w/Math.max(h,1); camera.updateProjectionMatrix(); if(!framed) fit();
+    const view=viewport(), {w,h}=view; renderer.setSize(w,h); camera.aspect=w/Math.max(h,1);
+    camera.clearViewOffset();
+    camera.updateProjectionMatrix(); if(!framed) fit();
   }).observe(container);
-  renderer.setAnimationLoop(() => {
-    for(const child of far.children) if(child.userData.spin) child.rotation.z+=child.userData.spin;
+  let lastTime;
+  const reducedMotion=matchMedia("(prefers-reduced-motion: reduce)");
+  renderer.setAnimationLoop(time => {
+    assembly.tick(time);
+    const dt=lastTime===undefined ? 0 : Math.min((time-lastTime)/1000,.05); lastTime=time;
+    if(!reducedMotion.matches) far.traverse(child=> {
+      if(child.userData.spin) child.rotation.z+=child.userData.spin*dt;
+      if(child.userData.field) child.userData.field.uniforms.time.value+=dt;
+    });
     controls.update(); renderer.render(scene,camera);
   });
   return {
     fit,
+    setExpanded(on) { assembly.expand(on); },
+    focusDeck(index) { assembly.focus(index); },
+    focus(name) {
+      if(name==="ship") { fit(); return; }
+      assembly.suspend();
+      const body=far.userData.landmarks[name]; if(!body) return;
+      const radius=name==="ring" ? 570 : name==="tycho" ? 185 : 155;
+      const distance=frameDistance(radius,1.15);
+      camera.position.copy(body.position).addScaledVector(new THREE.Vector3(.7,.25,-1).normalize(),distance);
+      controls.target.copy(body.position); controls.update();
+    },
     setRotate(on) { controls.autoRotate=on; },
     async update(current,previous,{ghost,highlight}) {
+      const signature=JSON.stringify([current.index,current.handoff?.artifacts,ghost,highlight]);
+      if(signature===lastUpdate) return "unchanged";
       const request=++loadRequest;
       const artifacts=current.handoff?.artifacts;
-      const afterSource=artifactSource(artifacts?.after), beforeSource=previous ? artifactSource(artifacts?.before) : null;
+      const exportedSource=artifactSource(artifacts?.after);
+      const afterSource=exportedSource || {url:"/rocinante.glb",key:"demo-interior-v1"}, beforeSource=previous ? artifactSource(artifacts?.before) : null;
       const keepCamera=framed;
       if(afterSource) {
         try {
-          const [after,before]=await Promise.all([loadGlb(afterSource),beforeSource ? loadGlb(beforeSource) : null]);
+          let [after,before]=await Promise.all([loadGlb(afterSource),beforeSource ? loadGlb(beforeSource) : null]);
+          let hasInterior=false; after.traverse(o=>{if(o.userData.assembly_kind==="deck") hasInterior=true;});
+          if(!hasInterior) {
+            // Older exports remain immutable. Upgrade the demo presentation,
+            // retaining the actual revision's launch cassettes.
+            const detailed=await loadGlb({url:"/rocinante.glb",key:"demo-interior-v1"});
+            for(const o of [...detailed.children]) if(o.userData.rocinante_part?.startsWith("tube_")) detailed.remove(o);
+            for(const o of [...after.children]) if(o.userData.rocinante_part?.startsWith("tube_")) detailed.add(o);
+            after=detailed;
+          }
           if(request!==loadRequest) return "stale";
           const geometryGroups=current.geometry_changed_parts ?? [];
           const beforeGeometry=before ? geometrySignatures(before) : new Map();
           const actualEdits=[...geometrySignatures(after)].filter(([name,signature])=>matches(name,geometryGroups) && beforeGeometry.get(name)!==signature).map(([name])=>name);
           const inputOnly=(current.changed_parts ?? []).filter(part=>!geometryGroups.includes(part));
           clearModels(); models.userData.rocinanteGlb=true;
-          if(before && ghost) { paintExport(before,{ghost:true,changed:[]}); models.add(centre(before)); }
+          if(before && ghost) { paintExport(before,{ghost:true,changed:[]}); before.userData.assemblyGhost=true; models.add(centre(before)); }
           paintExport(after,{ghost:false,changed:highlight ? inputOnly : [],geometryChanged:highlight ? actualEdits : []}); models.add(centre(after));
+          assembly.bind(); lastUpdate=signature;
           if(!keepCamera) fit();
-          return "export";
+          return exportedSource ? "export" : "demo";
         } catch(error) { if(request!==loadRequest) return "stale"; console.warn("Exported GLB failed to load; schematic instead.",error); }
       }
       if(request!==loadRequest) return "stale";
@@ -235,6 +433,7 @@ export function createScene(container) {
       const after=schematicShip(current.spec,highlight ? current.changed_parts ?? [] : [],false,highlight ? current.geometry_changed_parts ?? [] : []);
       after.userData.rocinantePrimitive=true; models.add(after);
       if(previous && ghost) { const before=schematicShip(previous.spec,[],true); before.userData.rocinantePrimitive=true; models.add(before); }
+      assembly.bind();
       if(!keepCamera) fit();
       return "schematic";
     },

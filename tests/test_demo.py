@@ -1,3 +1,4 @@
+import subprocess
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -19,15 +20,44 @@ def test_open_openrocket_reports_absence_instead_of_raising(monkeypatch, tmp_pat
     assert demo.open_openrocket(tmp_path / "t.ork", "Torpedo v1") is None
 
 
-def test_open_openrocket_opens_the_file_and_places_the_window(monkeypatch, tmp_path):
-    calls, placed = [], []
+def test_open_openrocket_opens_the_file_and_seeds_the_window_geometry(monkeypatch, tmp_path):
+    calls, seeded = [], []
     monkeypatch.setattr(demo, "_mac_app_available", lambda name: True)
+    monkeypatch.setattr(demo, "openrocket_running", lambda: False)
     monkeypatch.setattr(demo.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
-    monkeypatch.setattr(demo, "place_window", lambda *args: placed.append(args))
+    monkeypatch.setattr(demo, "seed_openrocket_bounds", lambda b: seeded.append(b))
     bounds = (864, 33, 864, 542)
     assert demo.open_openrocket(tmp_path / "v0002.ork", "Roci torpedo v2", bounds) == "OpenRocket"
     assert calls == [["open", "-a", "OpenRocket", str((tmp_path / "v0002.ork").resolve())]]
-    assert placed == [("OpenRocket", "Roci torpedo v2 (v0002.ork)", bounds)]
+    assert seeded == [bounds]
+
+
+def test_open_openrocket_leaves_geometry_alone_while_the_app_is_running(monkeypatch, tmp_path):
+    """A running OpenRocket owns the prefs file and writes its own values back on exit."""
+    seeded = []
+    monkeypatch.setattr(demo, "_mac_app_available", lambda name: True)
+    monkeypatch.setattr(demo, "openrocket_running", lambda: True)
+    monkeypatch.setattr(demo.subprocess, "run", lambda cmd, **kw: None)
+    monkeypatch.setattr(demo, "seed_openrocket_bounds", lambda b: seeded.append(b))
+    demo.open_openrocket(tmp_path / "v0003.ork", "Roci torpedo v3", (864, 33, 864, 542))
+    assert seeded == []
+
+
+def test_seed_openrocket_bounds_writes_the_node_openrocket_restores_from(tmp_path):
+    prefs = tmp_path / "com.apple.java.util.prefs.plist"
+    assert demo.seed_openrocket_bounds((864, 33, 864, 542), prefs)
+
+    def read(entry: str) -> str:
+        return subprocess.run(["/usr/libexec/PlistBuddy", "-c", f"Print {entry}", str(prefs)],
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+    frame = f"{demo.OPENROCKET_WINDOWS}:%s.{demo.OPENROCKET_FRAME}"
+    assert read(frame % "position") == "864,33"
+    assert read(frame % "size") == "864,542"
+    # Written again over an existing node, not duplicated beside it.
+    assert demo.seed_openrocket_bounds((0, 33, 700, 400), prefs)
+    assert read(frame % "position") == "0,33"
+    assert read(frame % "size") == "700,400"
 
 
 def test_quadrants_tile_the_screen_under_the_menu_bar():

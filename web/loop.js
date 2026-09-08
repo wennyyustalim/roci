@@ -21,7 +21,7 @@ async function renderScene() {
   if(!scene || !state) return;
   const it=current(), prev=state.iterations[it.parent];
   const source=await scene.update(it,prev,{ghost:el("ghost").checked,highlight:el("highlight").checked});
-  if(source==="export") el("geometry-source").textContent="Blender export"; else if(source==="schematic") el("geometry-source").textContent="Schematic · no export yet";
+  if(source==="demo") el("geometry-source").textContent="Detailed ship model"; else if(source==="export") el("geometry-source").textContent="Blender export"; else if(source==="schematic") el("geometry-source").textContent="Schematic · no export yet";
 }
 
 function renderProgress(it,prev) {
@@ -44,7 +44,7 @@ function render() {
   el("propose").textContent=state.mode==="live" ? "Ask Astra →" : "Run fixture →";
   el("propose").disabled=busy;
   el("title").textContent=`${it.name} · v${it.index}`;
-  el("comparison").textContent=prev ? `${it.ask}` : "Baseline · drag to orbit, scroll to zoom";
+  el("comparison").textContent=prev ? `${it.ask}` : "Salvaged Martian gunship · home to the crew";
   el("rationale").textContent=prev ? it.rationale : "";
   renderProgress(it,prev);
   el("metrics").replaceChildren();
@@ -83,14 +83,58 @@ async function propose() {
 
 el("proposal").onsubmit=e=>{e.preventDefault();propose();};
 for(const id of ["ghost","highlight"]) el(id).onchange=renderScene;
+const deckDescriptions={
+  Cockpit:"Alex’s flight station. A restrained crash couch, wraparound consoles and a direct connection to the ship below.",
+  Ops:"Holden’s command deck. A central tactical table, status screens and access down the ship’s vertical spine.",
+  Crew:"Off-watch. Stacked bunks, personal storage and the quietest corner of a very loud ship.",
+  Galley:"The heart of the Roci. A shared table, coffee station and a little green life in the bulkhead.",
+  "Machine shop":"Amos’s territory. A working bench, tool racks and service crates, ready for the next repair.",
+  Engineering:"Naomi’s station. The reactor vessel, coolant manifolds and diagnostic consoles above the Epstein drive.",
+};
+let expanded=false;
+el("canvas").addEventListener("assemblychange",event=>{
+  const detail=event.detail; expanded=detail.expanded;
+  if(!detail.suspended) for(const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed",String(button.dataset.view==="ship"));
+  el("disassemble").disabled=!detail.decks.length;
+  el("disassemble").setAttribute("aria-pressed",String(expanded));
+  el("disassemble").innerHTML=`<span class="explode-icon" aria-hidden="true">${expanded ? "▰" : "▱"}</span> ${expanded ? "Assemble Roci" : "Disassemble Roci"}`;
+  el("assembly-status").textContent=detail.moving ? (expanded ? "Separating hull, decks and drive…" : "Bringing the Roci back together…") : detail.focus!==null ? "Inside the Roci · drag to orbit" : expanded ? "Exploded view · choose a deck to step inside" : "Six decks. Four crew. One home.";
+  el("deck-nav").hidden=!detail.decks.length;
+  el("deck-nav").replaceChildren(...detail.decks.map(d=>{
+    const button=document.createElement("button");button.type="button";button.setAttribute("aria-pressed",String(detail.focus===d.index));
+    const number=document.createElement("span");number.textContent=String(d.index+1).padStart(2,"0");
+    button.append(number,document.createTextNode(d.name));button.onclick=()=>scene?.focusDeck(d.index);return button;
+  }));
+  const selected=detail.decks.find(d=>d.index===detail.focus);
+  el("deck-detail").hidden=!selected;
+  if(selected) {
+    el("deck-number").textContent=`DECK ${String(selected.index+1).padStart(2,"0")}`;
+    el("deck-title").textContent=selected.name;
+    el("deck-description").textContent=deckDescriptions[selected.name] || "A furnished compartment along the ship’s thrust axis.";
+    el("deck-crew").textContent=selected.crew.length ? `ON STATION / ${selected.crew.join(" · ")}` : "HABITABLE DECK";
+  }
+});
+el("disassemble").onclick=()=>scene?.setExpanded(!expanded);
+el("all-decks").onclick=()=>scene?.fit();
+el("presentation").onclick=()=>{
+  const on=document.body.classList.toggle("presentation");
+  el("presentation").setAttribute("aria-pressed",String(on));
+  el("presentation").textContent=on ? "Show workshop" : "Presentation mode";
+  requestAnimationFrame(()=>scene?.fit());
+};
 el("rotate").onchange=()=>scene?.setRotate(el("rotate").checked);
-el("fit").onclick=()=>scene?.fit();
+function selectView(name) {
+  scene?.focus(name);
+  for(const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed",String(button.dataset.view===name));
+}
+for(const button of document.querySelectorAll("[data-view]")) button.onclick=()=>selectView(button.dataset.view);
+el("fit").onclick=()=>selectView("ship");
 try {
   state=await api("state");
   for(const [value,label] of Object.entries(state.presets)) {const option=document.createElement("option");option.value=value;option.textContent=label;el("preset").append(option);}
   el("samples").replaceChildren(...(state.sample_asks ?? []).map(ask=> {const b=document.createElement("button");b.type="button";b.textContent=ask;b.onclick=()=>{el("ask").value=ask;el("ask").focus();};return b;}));
   if(!el("ask").value && state.sample_asks?.length) el("ask").value=state.sample_asks[0];
-  el("status").textContent="Ask for torpedoes: more of them, elsewhere on the hull, or a different torpedo. Blender, OpenRocket and Kord follow.";
+  el("status").textContent="Explore the ship, then design a torpedo. Blender, OpenRocket and Kord follow your changes.";
   render();
 } catch(error) {el("status").textContent=`Unable to load the ship: ${error.message}`;el("propose").disabled=true;}
 try {const {createScene}=await import("./primitives.js");scene=createScene(el("canvas"));renderScene();}

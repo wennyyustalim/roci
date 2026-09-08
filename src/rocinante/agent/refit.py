@@ -94,6 +94,7 @@ class RefitAgent:
 
     out_dir: Path = Path("out")
     build_meshes: bool = True
+    torpedo_only: bool = False
     history: list[RefitResult] = field(default_factory=list)
     client: object | None = field(default=None, repr=False)
 
@@ -123,7 +124,7 @@ class RefitAgent:
             response = client.responses.parse(
                 model=selected_model,
                 input=[
-                    {"role": "system", "content": prompts.SHIP_SYSTEM},
+                    {"role": "system", "content": prompts.SHIP_SYSTEM + (prompts.TORPEDO_ONLY if self.torpedo_only else "")},
                     {
                         "role": "user",
                         "content": prompts.REFIT.format(

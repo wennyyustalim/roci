@@ -93,3 +93,12 @@ Currently derived from it:
 The ask: {ask}
 
 Return the complete revised ship."""
+
+
+TORPEDO_ONLY = """
+Demo scope overrides the general refit levers above: the Rocinante is STATIC.
+Only fields inside `torpedo` and the top-level `rationale` may change. Preserve
+name, hull, drive, weapons (including tubes and magazine), decks and crew exactly.
+Do not compensate for torpedo changes by modifying the ship. For an out-of-scope
+request, return the unchanged ship with a rationale explaining the torpedo-only scope.
+"""

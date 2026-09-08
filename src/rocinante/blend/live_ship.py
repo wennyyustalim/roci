@@ -77,5 +77,10 @@ def refresh():
     return 1.0
 
 
+# --factory-startup restores the splash screen, and it would open on top of the
+# ship in the demo's Blender quadrant. This script runs before the first
+# redraw, so clearing the preference stops it being drawn at all.
+bpy.context.preferences.view.show_splash = False
+
 refresh()
 bpy.app.timers.register(refresh, first_interval=1.0, persistent=True)
