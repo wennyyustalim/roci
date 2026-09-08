@@ -19,6 +19,7 @@ def test_propose_review_repeat_and_reload(tmp_path):
         ROCINANTE.sustained_burn_hours
     )
     assert "tube_*" in first["changed_parts"]
+    assert first["geometry_changed_parts"] == ["tube_*"]
     assert bench.state["accepted"] == 0
     with pytest.raises(ValueError, match="pending"):
         bench.propose({"preset": "armor"})
@@ -28,12 +29,28 @@ def test_propose_review_repeat_and_reload(tmp_path):
     assert second["parent"] == 1
     assert second["derived"]["delta_v_km_s"] < first["derived"]["delta_v_km_s"]
     assert second["mission"]["total_time_s"] == first["mission"]["total_time_s"]
+    assert second["geometry_changed_parts"] == []
     bench.decide({"index": 2, "verdict": "rejected"})
     third = bench.propose({"preset": "drive"})["iterations"][-1]
     assert third["parent"] == 1
     assert third["spec"]["hull"]["armor_cm"] == ROCINANTE.hull.armor_cm
     assert third["derived"] == first["derived"]
     assert third["changed_parts"] == ["drive_*"]
+    assert third["geometry_changed_parts"] == ["drive_*"]
+
+
+def test_older_revision_geometry_metadata_is_recovered_from_its_parent(tmp_path):
+    bench = Workbench(tmp_path)
+    bench.propose({"preset": "armor"})
+    bench.decide({"index": 1, "verdict": "rejected"})
+    bench.propose({"preset": "drive"})
+    for entry in bench.state["iterations"]:
+        entry.pop("geometry_changed_parts")
+    bench.save()
+    recovered = Workbench(tmp_path).snapshot()
+    assert recovered["iterations"][1]["geometry_changed_parts"] == []
+    assert recovered["iterations"][2]["geometry_changed_parts"] == ["drive_*"]
+    assert recovered["iterations"][2]["parent"] == 0
 
 
 def test_bad_requests_leave_design_unchanged(tmp_path):

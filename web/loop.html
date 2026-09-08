@@ -20,20 +20,16 @@
   <main>
     <aside class="history"><span class="eyebrow">02 / Revisions</span><nav id="timeline" aria-label="Revision history"></nav><p class="note">Approve to make a revision the starting point for the next refit. Rejected proposals stay in history.</p></aside>
     <section id="stage" aria-label="Interactive ship geometry comparison">
-      <div class="stage-label"><span class="eyebrow">03 / Geometry comparison</span><h2 id="title">Baseline</h2><p id="comparison"></p></div>
+      <div class="stage-label"><span class="eyebrow">03 / Geometry comparison</span><h2 id="title">Baseline</h2><p id="comparison"></p><p id="geometry-note"></p><span id="geometry-source">Schematic preview</span></div>
       <div id="canvas"></div>
       <div id="scene-error" role="alert" hidden></div>
-      <div class="legend"><span>● Current</span><span class="accent">● Changed</span><span class="muted">○ Previous</span></div>
-      <div class="controls"><label><input id="ghost" type="checkbox" checked> Previous hull</label><label><input id="highlight" type="checkbox" checked> Changes</label><label><input id="rotate" type="checkbox" checked> Rotate</label><button id="fit">Fit view</button></div>
+      <div class="legend"><span>● Current</span><span class="accent">● Geometry edit</span><span class="affected">● Input-only edit</span><span class="muted">○ Previous</span></div>
+      <div class="controls"><label><input id="ghost" type="checkbox" checked> Previous hull</label><label><input id="highlight" type="checkbox" checked> Changes</label><label><input id="rotate" type="checkbox"> Rotate</label><button id="fit">Fit view</button></div>
     </section>
     <aside class="detail">
       <span class="eyebrow">04 / Computed consequences</span>
       <p id="rationale"></p>
       <dl id="metrics"></dl>
-      <h3>Tycho → Ceres <span>⅓ g cruise</span></h3>
-      <dl id="mission"></dl><ul id="warnings"></ul>
-      <p class="note">Fixed route and acceleration: arrival stays constant. Fuel margin and feasibility change with the spec. Endurance uses a conservative initial-mass estimate.</p>
-      <h3>Spec changes</h3><ul id="changes"></ul>
       <div id="review"><span class="eyebrow">05 / Human decision</span><p id="verdict"></p><div class="actions"><button id="approve">Approve revision</button><button id="reject" class="secondary">Reject</button></div></div>
       <a id="download" download="ship.json">Download selected spec ↓</a>
       <section id="handoff">
@@ -45,6 +41,10 @@
         <a id="kord-link" target="_blank" rel="noopener noreferrer" hidden>Open Kord comparison ↗</a>
         <p class="note">Sharing uploads both GLBs and creates a public comparison link. Local approval does not set a Kord verdict.</p>
       </section>
+      <h3>Tycho → Ceres <span>⅓ g cruise</span></h3>
+      <dl id="mission"></dl><ul id="warnings"></ul>
+      <p class="note">Fixed route and acceleration: arrival stays constant. Fuel margin and feasibility change with the spec. Endurance uses a conservative initial-mass estimate.</p>
+      <h3>Spec changes</h3><ul id="changes"></ul>
     </aside>
   </main>
   <footer>Exported Blender geometry when available · schematic fallback · engineering estimates · local decisions saved to disk · explicit Kord sharing</footer>

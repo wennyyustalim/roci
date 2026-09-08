@@ -36,6 +36,21 @@ SHIP_PART_OF_PREFIX = {
     "stores_t": None,
 }
 
+# ShipSpec inputs consumed by build_ship.py, and the generated part groups each
+# input changes.  This deliberately differs from SHIP_PART_OF_PREFIX above:
+# that map identifies the engineering assembly affected by a design change,
+# while this one identifies meshes that Blender will actually regenerate in a
+# different shape or position.
+SHIP_GEOMETRY_PARTS = {
+    "hull.length_m": ("deck_*", "hull_body", "pdc_*", "tube_*"),
+    "hull.beam_m": ("deck_*", "drive_*", "hull_body", "pdc_*", "tube_*"),
+    "hull.taper": ("deck_*", "hull_body", "pdc_*", "tube_*"),
+    "drive.cone_length_m": ("drive_*",),
+    "drive.cone_radius_m": ("drive_*",),
+    "weapons.torpedo_tubes": ("tube_*",),
+    "weapons.pdc_mounts": ("pdc_*",),
+}
+
 
 class FieldChange(BaseModel):
     path: str
@@ -128,11 +143,46 @@ def diff_ships(before: ShipSpec, after: ShipSpec, tolerance: float = 1e-9) -> Sp
             continue
         root = path.split(".")[0].split("[")[0]
         part = SHIP_PART_OF_PREFIX.get(root)
-        # A weapons change only moves geometry when it changes the tube count.
-        if root == "weapons" and "torpedo_tubes" not in path:
-            part = None
+        # Most weapons fields have no visible assembly in the generated ship.
+        if root == "weapons":
+            if "torpedo_tubes" in path:
+                part = "tube_*"
+            elif "pdc_mounts" in path:
+                part = "pdc_*"
+            else:
+                part = None
         changes.append(FieldChange(path=path, before=old, after=new, part=part))
     return SpecDiff(changes=changes)
+
+
+def ship_geometry_parts(before: ShipSpec, after: ShipSpec) -> list[str]:
+    """Return generated part groups whose geometry or placement changed.
+
+    This is intentionally narrower than ``diff_ships().changed_parts``.  Armor,
+    propellant, thrust, and other engineering changes can affect an assembly
+    and its computed consequences without changing any Blender input.
+    """
+    a = _flatten(before.model_dump(mode="json"))
+    b = _flatten(after.model_dump(mode="json"))
+    parts: set[str] = set()
+
+    for path, path_parts in SHIP_GEOMETRY_PARTS.items():
+        old, new = a.get(path), b.get(path)
+        if isinstance(old, (int, float)) and isinstance(new, (int, float)):
+            changed = abs(old - new) > 1e-9
+        else:
+            changed = old != new
+        if changed:
+            parts.update(path_parts)
+
+    # Deck names and the `detailed` annotation are metadata.  Count, height,
+    # and kind determine the generated deck meshes and their stable part tags.
+    before_decks = [(deck.height_m, deck.kind) for deck in before.decks]
+    after_decks = [(deck.height_m, deck.kind) for deck in after.decks]
+    if before_decks != after_decks:
+        parts.add("deck_*")
+
+    return sorted(parts)
 
 
 def diff_derived(before: ShipSpec, after: ShipSpec) -> str:

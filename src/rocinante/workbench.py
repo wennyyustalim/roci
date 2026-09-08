@@ -13,7 +13,7 @@ from pathlib import Path
 
 from rocinante.agent.refit import RefitAgent, RefitModelError, RefitResult, model_name
 from rocinante.blend import launch_live_ship
-from rocinante.diff import diff_ships
+from rocinante.diff import diff_ships, ship_geometry_parts
 from rocinante.flight import plan
 from rocinante.handoff import export_pair, share_url, verified_pair
 from rocinante.kord import KordClient
@@ -67,6 +67,12 @@ class Workbench:
         if self.path.exists():
             self.state = json.loads(self.path.read_text())
             for entry in self.state["iterations"]:
+                if "geometry_changed_parts" not in entry:
+                    parent = entry.get("parent")
+                    entry["geometry_changed_parts"] = ship_geometry_parts(
+                        ShipSpec.model_validate(self.state["iterations"][parent]["spec"]),
+                        ShipSpec.model_validate(entry["spec"]),
+                    ) if parent is not None else []
                 handoff = entry.get("handoff", {})
                 if handoff.get("status") in ("exporting", "sharing"):
                     stage = handoff["status"]
@@ -101,6 +107,7 @@ class Workbench:
             "delta_v_margin": ship.delta_v_km_s - burn.delta_v_km_s,
             "rationale": ship.rationale or "Baseline design. Ready for a refit.",
             "changed_parts": result.diff.changed_parts if result else [],
+            "geometry_changed_parts": ship_geometry_parts(result.before, ship) if result else [],
             "changes": [c.human() for c in result.diff.changes] if result else [],
         }
 

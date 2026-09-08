@@ -60,17 +60,26 @@ Never narrate fixture output as a model response.
 
 ## Rehearse the complete loop
 
-1. Propose **Carry eight more torpedoes without losing cruise burn time**.
-   In live mode, type that request. Inspect the rationale and computed spec
-   changes before deciding. The fixture goes from 20 to 28 torpedoes, adds
-   19.2 t dry mass, and preserves delta-v and cruise endurance by adding fuel.
-   A model proposal can differ; narrate the actual computed values. The verified
-   Astra run added magazine capacity without adding tubes, so its exterior
-   geometry stayed unchanged. Use the cone revision below for the visible
-   shape comparison; the model does not invent tank or magazine geometry.
+1. In live mode, submit the tested stage request:
+
+   > Carry eight more torpedoes by adding two launch tubes and six magazine
+   > slots, without losing cruise burn time. Keep other design inputs unchanged
+   > except the propellant needed to preserve endurance.
+
+   Two independent Astra calls returned only the three intended input changes:
+   tubes **4 → 6**, magazine **76.8 → 105.6 m³**, and propellant
+   **1000 → 1008.94 t**. Capacity rose **20 → 28**, dry mass rose **19.2 t**,
+   and the drive limit fell **12.07 → 11.96 g**. Cruise endurance still displays
+   **35.09 h**; fuel rounding increased it by 0.155 seconds, so there was no loss.
+   The fixture produces the same type of refit, but is explicitly not a model
+   call. Always inspect the actual output before narrating a new live result.
 2. Click **Export comparison**. Both the proposal and its accepted parent
    regenerate through Blender. The viewer loads those actual GLBs and marks
-   affected parts. Toggle Previous hull and Changes, then Fit view.
+   affected parts. Orange marks geometry edits; blue marks input-only edits.
+   Count the two added tubes. The fuel change affects engineering inputs,
+   not the drive's shape. Toggle Previous hull and Changes, then Fit view.
+   Rotation starts off to keep the launch ports visible; enable it deliberately
+   when showing the silhouette.
 3. Click **Share with Kord**, then **Open Kord comparison**. Inspect the pair
    in Kord's overlay view (scroll out over the canvas if the camera is too
    close). The local comparison report and GLB downloads are
@@ -95,17 +104,26 @@ A pending proposal must be approved or rejected before requesting another.
 
 ## 60-second narration
 
-- **0:00–0:10:** “A sentence of intent becomes a reviewable engineering revision.”
-  Enter the request in live mode, or explicitly introduce the fixture fallback.
-- **0:10–0:25:** “The proposal is a complete validated ship spec. Every number
-  here is computed from that spec.” Point to capacity, dry mass and endurance.
-- **0:25–0:42:** Export and open the Kord comparison. “Same parts, changed
-  geometry, with the previous hull available for comparison.” Pause on the
-  overlay. Pre-open a saved comparison if network latency exceeds the slot.
-- **0:42–0:52:** “The route stays at one-third g, so arrival stays fixed. Fuel
-  margin changes with the design. The drive and crew limits are separate.”
-- **0:52–1:00:** Approve locally. “The model proposes, physics computes the
-  consequences, and the human approves. The next request starts here.”
+Use the tested stage request above, with the saved real comparison preloaded
+as a fallback. The measured model call took 20.108 seconds; do not promise an
+instant result. Full recording timing remains a rehearsal task.
+
+- **0:00–0:08:** Submit the request. “Eight more torpedoes: two new launch tubes,
+  six magazine slots, without losing cruise endurance.”
+- **0:08–0:25:** While the model works: “Astra returns a complete ship spec.
+  The geometry and every performance number are computed from it.”
+- **0:25–0:40:** Export and show the comparison. “Four launch tubes become six.
+  Capacity goes from twenty to twenty-eight. The extra payload adds nineteen
+  tonnes.” Pause on the two added tubes and the mass/capacity panel.
+- **0:40–0:52:** “We added fuel to preserve endurance. The heavier ship lowers
+  the drive limit by about a tenth of a g. The crew limit stays at nine.”
+- **0:52–1:00:** Approve locally. “The human decides whether the tradeoff is
+  acceptable. The next request starts from the approved design.”
+
+If model/export/upload latency exceeds the slot, explicitly switch to the
+saved real run. Keep the local workbench for computed consequences and review;
+Kord supplies the public 3D comparison. Do not imply the public Kord viewer
+contains the local physics panel.
 
 For the three-minute demo, include the rejected armor revision and the next
 cone proposal to prove that rejection does not advance the design.
@@ -133,3 +151,18 @@ that times out may have reached Kord, so a retry can create another public
 link. Export hashes prevent uploading changed or missing bytes. Shared links
 expire according to Kord's returned expiry; use the saved local comparison
 if a link has expired.
+
+## Reproduce the stage model evidence
+
+The opt-in runner makes one model proposal and writes inputs, prompts, output,
+model/timing and computed checks. It performs no Kord upload. Use a fresh output
+directory so evidence is not overwritten:
+
+```bash
+uv run --env-file /Users/w/Projects/rocinante/.env python scripts/stage_refit.py \
+  --run-live --model gpt-6-astra --out out/stage-refit-new
+```
+
+The recorded probe is in `out/stage-refit-v2`; the independent UI request is in
+`out/demo-stage-v2`. A positive sub-second endurance delta from rounded fuel is
+recorded explicitly, not presented as exact mathematical equality.
