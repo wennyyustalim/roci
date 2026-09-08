@@ -41,46 +41,6 @@ wheels = [
 ]
 
 [[package]]
-name = "apogee"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-openrocket = [
-    { name = "jpype1" },
-    { name = "orhelper" },
-]
-rocketpy = [
-    { name = "rocketpy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "jpype1", marker = "extra == 'openrocket'", specifier = ">=1.5" },
-    { name = "openai", specifier = ">=1.50" },
-    { name = "orhelper", marker = "extra == 'openrocket'", specifier = ">=0.1.3" },
-    { name = "pydantic", specifier = ">=2.9" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "rocketpy", marker = "extra == 'rocketpy'", specifier = ">=1.4" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "typer", specifier = ">=0.12" },
-]
-provides-extras = ["openrocket", "rocketpy", "dev"]
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -1418,6 +1378,46 @@ sdist = { url = "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", size = 310654, upload-time = "2026-04-12T08:24:02.83Z" },
 ]
+
+[[package]]
+name = "rocinante"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+openrocket = [
+    { name = "jpype1" },
+    { name = "orhelper" },
+]
+rocketpy = [
+    { name = "rocketpy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "jpype1", marker = "extra == 'openrocket'", specifier = ">=1.5" },
+    { name = "openai", specifier = ">=1.50" },
+    { name = "orhelper", marker = "extra == 'openrocket'", specifier = ">=0.1.3" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "rich", specifier = ">=13.7" },
+    { name = "rocketpy", marker = "extra == 'rocketpy'", specifier = ">=1.4" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "typer", specifier = ">=0.12" },
+]
+provides-extras = ["openrocket", "rocketpy", "dev"]
 
 [[package]]
 name = "rocketpy"
