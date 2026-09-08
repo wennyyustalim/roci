@@ -43,6 +43,13 @@ def test_torpedo_capacity_is_magazine_plus_tubes():
     assert w.torpedo_capacity == int(w.magazine_m3 // w.torpedo_volume_m3) + w.torpedo_tubes
 
 
+def test_decimal_magazine_does_not_lose_a_slot():
+    from rocinante.ship import Weapons
+
+    assert Weapons(magazine_m3=105.6, torpedo_tubes=6).torpedo_capacity == 28
+    assert Weapons(magazine_m3=105.5, torpedo_tubes=6).torpedo_capacity == 27
+
+
 def test_the_weakest_crew_member_sets_the_limit():
     assert ROCINANTE.crew_g_limit == min(c.juiced_g_tolerance for c in ROCINANTE.crew)
     assert ROCINANTE.crew_limited

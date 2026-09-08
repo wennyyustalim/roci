@@ -59,6 +59,30 @@ browser does the interaction. Rendered pixels are for the hero shot.
 
 ## Setup
 
+For the end-to-end skeleton, Python is enough:
+
+```bash
+uv sync --extra dev
+uv run rocinante demo --port 3001
+# Open http://127.0.0.1:3001/
+```
+
+Choose a fixture refit, inspect the primitive ship comparison and computed
+consequences, then approve or reject. Repeat: the next proposal starts from
+the last approved design. History survives refreshes and server restarts in
+`out/workbench/workbench.json`. Use `--out out/another-run` for a fresh loop.
+The 3D viewer needs access to jsDelivr; review and metrics remain usable if
+its modules fail to load. No Blender or API key is needed for fixture mode.
+
+`uv run rocinante demo --live` uses the existing model proposal method with
+free text. Export `OPENAI_API_KEY` and optionally `ROCINANTE_MODEL` in the
+launching shell first (`.env` is not loaded automatically). Live model access
+is not verified by the fixture demo. Local decisions do not file or approve
+Kord sessions. Download selected specs, then use the existing `ship-mesh
+--spec <file>` and `share` commands for that separate handoff.
+
+For Blender exports and the torpedo tooling:
+
 ```bash
 brew install --cask blender temurin
 
@@ -125,6 +149,9 @@ rendering (`web/`).
 - `kord/client.py` — the Kord integration, rewritten against the real API.
 - `tests/test_ship.py` and `tests/test_flight.py` — the physics under test.
 - The `ship`, `ship-mesh`, `ship-hero`, `burn`, `refit` and `share` commands.
+- `workbench.py`, the `demo` command, `web/loop.*`, `web/primitives.js`, and
+  `tests/test_workbench.py` — the persistent local proposal/review skeleton,
+  labeled fixtures, primitive comparison and computed ship/mission panels.
 
 **Kord itself is a separate, pre-existing product**, reached over HTTP. No
 part of this project required a change to it — see [PLAN.md](PLAN.md) for the

@@ -1,5 +1,72 @@
 # Build plan
 
+## Current implementation plan · skeleton first
+
+The immediate milestone is a complete local loop, with basic shapes:
+**accepted spec → proposal → validated spec → geometry + consequences →
+human decision → next proposal from the accepted spec.** Visual polish comes
+after this works. The timed hackathon plan below is historical context;
+this section supersedes its sequencing and scope.
+
+### 1. Local vertical slice — implemented
+
+- `rocinante demo --port 3001` starts a loopback-only workbench.
+- Start with the baseline ship; choose one of three explicitly labeled
+  fixture proposals: eight more torpedoes, extra armor, or a longer cone.
+  Fixtures do not interpret arbitrary English or call a model.
+- Validate a complete `ShipSpec`; compute the structured diff, performance,
+  crew limit and Tycho–Ceres mission using existing Python code.
+- Render a tapered hull, cone, box PDCs and cylinder/cone torpedoes directly
+  from the returned spec. Keep part IDs aligned with Blender. Ghost the
+  proposal's accepted parent and highlight affected assemblies.
+- Show pending / approved / rejected history. Only approval advances the
+  active design. Rejecting retains the proposal for comparison. Save state
+  atomically to `out/workbench/workbench.json`; reload it on restart.
+- Download any selected ship spec. No Blender, simulator, account or model
+  key is needed for fixtures. The 3D module currently loads from a CDN.
+
+Acceptance: propose torpedoes, inspect capacity +8 and preserved endurance,
+approve, propose armor, inspect the performance penalty, reject, propose a
+cone extension and verify its parent is still the approved torpedo revision.
+Refresh and restart without losing the review history.
+
+### 2. Live proposal path — wired; external call verification remains
+
+`rocinante demo --live` swaps fixture selection for free text and calls the
+existing `RefitAgent.propose()`. The remainder of the loop is identical.
+Model access comes from the process environment (`OPENAI_API_KEY`,
+`ROCINANTE_MODEL`); `.env` is not automatically loaded. Validate actual model
+access and structured-output compatibility before presenting this as a live
+model demo. A failed call must leave the accepted design and history intact.
+
+### 3. Kord handoff — next integration milestone
+
+The local review is not a Kord review. Existing `ship-mesh`, `share` and
+`refit` commands provide the separate export/filing path. Next, connect a
+specific pending workbench revision to GLB generation and an explicit Kord
+filing action, persist its URL/session, and surface external failures without
+losing the local proposal. Do not imply that local approval sets a Kord verdict.
+
+### 4. Fidelity — after the loop
+
+Replace primitives with generated GLBs, retain part IDs, then improve
+materials. Tank packaging and volume constraints are not yet modeled.
+Combat, interior, torpedo flight and cinematic animation are out of this
+slice. Torpedoes here are simple loaded-tube markers, not simulated flights.
+
+### Physics/display constraints
+
+- Fixed route + fixed acceleration means unchanged flip and arrival times.
+  Show delta-v margin and mission warnings; do not animate invented timing gains.
+- Cone length alone has no performance consequence in the current model.
+- Armor changes mass, but not exterior dimensions in the current schema.
+  Highlighting means an affected part, not necessarily displaced geometry.
+- Cruise endurance currently assumes initial wet mass throughout the burn;
+  label this conservative estimate. A variable-mass solver is later work.
+- Fixture edits are deterministic; all displayed consequences are computed.
+
+## Historical hackathon schedule (superseded above)
+
 **Hacking runs 10:30 to 17:30. Submission and the video are due at 17:30.**
 That is seven hours, and about **5.5 hours of building** once you subtract
 lunch and an hour to record and submit. The previous version of this file was

@@ -1,0 +1,179 @@
+"""Local refit workbench: propose, inspect, decide, repeat.
+
+Fixture proposals exercise the same validation, diff and physics as model
+proposals. Nothing is sent to Kord by this local review workflow.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+from rocinante.agent.refit import RefitAgent, RefitResult
+from rocinante.diff import diff_ships
+from rocinante.flight import plan
+from rocinante.samples import ROCINANTE
+from rocinante.ship import ShipSpec
+
+PRESETS = {
+    "torpedoes": "Carry eight more torpedoes without losing cruise burn time",
+    "armor": "Add 2 cm of hull armor and show the performance cost",
+    "drive": "Lengthen the drive cone by 4 m; keep engine performance unchanged",
+}
+
+
+def fixture_proposal(ship: ShipSpec, preset: str) -> ShipSpec:
+    after = ship.model_copy(deep=True)
+    if preset == "torpedoes":
+        after.weapons.torpedo_tubes += 2
+        after.weapons.magazine_m3 += 6 * after.weapons.torpedo_volume_m3
+        # Preserve propellant/dry-mass ratio, hence cruise endurance and delta-v.
+        after.drive.propellant_t *= after.dry_mass_t / ship.dry_mass_t
+        after.rationale = (
+            "Fixture: add two tubes and six magazine slots. Increase propellant in "
+            "proportion to dry mass to preserve cruise endurance and delta-v. "
+            "Tank packaging is not modeled in this skeleton."
+        )
+    elif preset == "armor":
+        after.hull.armor_cm += 2
+        after.rationale = (
+            "Fixture: add 2 cm of armor. Higher dry mass reduces delta-v and acceleration. "
+            "The exterior shape is unchanged; the hull highlight identifies the affected part."
+        )
+    elif preset == "drive":
+        after.drive.cone_length_m += 4
+        after.rationale = (
+            "Fixture: extend the cone by 4 m. This geometry-only change does not alter "
+            "thrust or exhaust velocity in the current engineering model."
+        )
+    else:
+        raise ValueError("Choose a supported fixture preset")
+    return ShipSpec.model_validate(after.model_dump())
+
+
+class Workbench:
+    def __init__(self, out: Path, live: bool = False):
+        self.out = out
+        self.live = live
+        self.path = out / "workbench.json"
+        out.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            self.state = json.loads(self.path.read_text())
+        else:
+            self.state = {"accepted": 0, "iterations": [self.entry(ROCINANTE, 0, "approved")]}
+            self.save()
+
+    @staticmethod
+    def entry(ship: ShipSpec, index: int, status: str, result: RefitResult | None = None):
+        burn = plan(ship, "Tycho", "Ceres")
+        return {
+            "index": index, "name": ship.name, "status": status,
+            "spec": ship.model_dump(mode="json"), "derived": ship.derived(),
+            "mission": burn.model_dump(mode="json"),
+            "delta_v_margin": ship.delta_v_km_s - burn.delta_v_km_s,
+            "rationale": ship.rationale or "Baseline design. Ready for a refit.",
+            "changed_parts": result.diff.changed_parts if result else [],
+            "changes": [c.human() for c in result.diff.changes] if result else [],
+        }
+
+    def save(self):
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.state, indent=2, allow_nan=False))
+        temporary.replace(self.path)
+
+    def snapshot(self):
+        return {**self.state, "mode": "live" if self.live else "fixture", "presets": PRESETS}
+
+    def propose(self, payload: dict):
+        if self.state["iterations"][-1]["status"] == "pending":
+            raise ValueError("Approve or reject the pending proposal first")
+        parent = self.state["accepted"]
+        ship = ShipSpec.model_validate(self.state["iterations"][parent]["spec"])
+        if self.live:
+            ask = payload.get("ask", "")
+            if not isinstance(ask, str) or not ask.strip() or len(ask) > 2000:
+                raise ValueError("Enter a refit request of 1–2000 characters")
+            after = RefitAgent(build_meshes=False).propose(ship, ask)
+        else:
+            preset = payload.get("preset", "torpedoes")
+            if not isinstance(preset, str) or preset not in PRESETS:
+                raise ValueError("Choose a supported fixture preset")
+            ask = PRESETS[preset]
+            after = fixture_proposal(ship, preset)
+        result = RefitResult(ask=ask, before=ship, after=after, diff=diff_ships(ship, after))
+        index = len(self.state["iterations"])
+        entry = self.entry(after, index, "pending", result)
+        entry.update(parent=parent, ask=ask, source="live" if self.live else "fixture")
+        self.state["iterations"].append(entry)
+        self.save()
+        return self.snapshot()
+
+    def decide(self, payload: dict):
+        current = self.state["iterations"][-1]
+        verdict = payload.get("verdict")
+        if current["status"] != "pending" or payload.get("index") != current["index"]:
+            raise ValueError("This proposal is no longer pending; refresh the workbench")
+        if verdict not in ("approved", "rejected"):
+            raise ValueError("Verdict must be approved or rejected")
+        current["status"] = verdict
+        if verdict == "approved":
+            self.state["accepted"] = current["index"]
+        self.save()
+        return self.snapshot()
+
+
+def make_server(workbench: Workbench, port: int) -> HTTPServer:
+    web = Path(__file__).resolve().parents[2] / "web"
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, status, body, content_type="application/json"):
+            data = json.dumps(body).encode() if content_type == "application/json" else body
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            if self.path == "/api/state":
+                return self.reply(200, workbench.snapshot())
+            assets = {"/": ("loop.html", "text/html; charset=utf-8"),
+                      "/loop.js": ("loop.js", "text/javascript"),
+                      "/loop.css": ("loop.css", "text/css"),
+                      "/primitives.js": ("primitives.js", "text/javascript")}
+            if self.path not in assets:
+                return self.reply(404, {"error": "Not found"})
+            name, mime = assets[self.path]
+            self.reply(200, (web / name).read_bytes(), mime)
+
+        def do_POST(self):
+            # Local-only API; require same-origin JSON to prevent cross-site forms.
+            origin = self.headers.get("Origin")
+            if origin and origin != f"http://{self.headers.get('Host')}":
+                return self.reply(403, {"error": "Cross-origin writes are not allowed"})
+            if self.headers.get("Content-Type") != "application/json":
+                return self.reply(415, {"error": "Send application/json"})
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 16384:
+                    raise ValueError("Invalid request size")
+                payload = json.loads(self.rfile.read(size))
+                if not isinstance(payload, dict):
+                    raise TypeError("Expected a JSON object")
+                if self.path == "/api/propose":
+                    state = workbench.propose(payload)
+                elif self.path == "/api/decide":
+                    state = workbench.decide(payload)
+                else:
+                    return self.reply(404, {"error": "Not found"})
+                self.reply(200, state)
+            except (ValueError, TypeError) as exc:
+                self.reply(400, {"error": str(exc)})
+            except Exception:
+                logging.getLogger(__name__).exception("Workbench request failed")
+                self.reply(502, {"error": "Proposal failed. Check model access and server logs; retry."})
+
+    return HTTPServer(("127.0.0.1", port), Handler)
